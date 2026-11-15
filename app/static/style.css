@@ -128,3 +128,45 @@ code { font-size: .85em; background: var(--surface-2); padding: .1rem .3rem; bor
 @media (max-width: 700px) { .userbox span { display: none; } }
 .upload-row { display: flex; justify-content: space-between; align-items: flex-end; gap: 1rem; flex-wrap: wrap; }
 .upload-row .field { min-width: 220px; }
+.public-main { max-width: 900px; }
+.topbar.public { justify-content: center; }
+.hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+.card-inner { border: 1px solid var(--border); border-radius: 8px; padding: .9rem; margin-bottom: .8rem; background: var(--surface-2); }
+.card-inner.has-error { border-color: var(--danger); }
+.item-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: .6rem; }
+.consent { display: flex; gap: .6rem; align-items: flex-start; margin-top: 1rem; font-size: .9rem; }
+.consent input { margin-top: .25rem; }
+.consent.has-error span { color: var(--danger); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85rem; overflow-wrap: anywhere; }
+.steps { list-style: none; display: flex; padding: 0; margin: 0 0 1rem; gap: .4rem; flex-wrap: wrap; counter-reset: s; }
+.steps li { flex: 1; min-width: 110px; padding: .5rem .7rem; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); color: var(--muted); font-size: .88rem; font-weight: 600; }
+.steps li::before { counter-increment: s; content: counter(s) ". "; }
+.steps li.done { background: color-mix(in srgb, var(--primary) 12%, var(--surface)); color: var(--primary); border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); }
+td.thumb { width: 72px; } td.thumb svg, .line-thumb svg { width: 64px; height: 48px; display: block; background: var(--surface-2); border-radius: 6px; }
+.right { text-align: right; }
+.tabs { display: flex; gap: .3rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.tabs a { padding: .35rem .8rem; border-radius: 99px; border: 1px solid var(--border); color: var(--muted); background: var(--surface); font-size: .88rem; }
+.tabs a[aria-current] { background: var(--primary); border-color: var(--primary); color: var(--primary-ink); }
+.count { font-weight: 700; margin-left: .2rem; }
+.table-wrap.bordered { border: 1px solid var(--border); box-shadow: var(--shadow); }
+.badge.st-recibida { background: color-mix(in srgb, var(--primary) 14%, transparent); color: var(--primary); }
+.badge.st-en_estudio, .badge.st-cambios { background: var(--warn-bg); color: var(--warn); }
+.badge.st-enviada { background: color-mix(in srgb, var(--primary) 14%, transparent); color: var(--primary); }
+.badge.st-aceptada { background: var(--ok-bg); color: var(--ok); }
+.badge.st-rechazada, .badge.st-caducada, .badge.st-anulada { background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); }
+.line { display: flex; gap: 1rem; padding: .9rem 0; border-bottom: 1px solid var(--border); }
+.line:last-of-type { border-bottom: 0; }
+.line-thumb svg { width: 96px; height: 72px; }
+.line-main { flex: 1; min-width: 0; } .line-main p { margin: 0 0 .3rem; }
+.line-controls { display: flex; flex-wrap: wrap; gap: .6rem 1rem; align-items: flex-end; margin: .4rem 0; }
+.line-controls label { display: flex; flex-direction: column; gap: .2rem; font-size: .8rem; font-weight: 600; color: var(--muted); }
+.line-controls select, .line-controls input { min-width: 130px; }
+.line-controls .calc { font-size: .88rem; padding-bottom: .5rem; }
+.warn-text { color: var(--warn); }
+.send-card { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; border-color: color-mix(in srgb, var(--primary) 40%, var(--border)); }
+.send-card h2 { margin-bottom: .2rem; } .send-card p { margin: 0; }
+@media (max-width: 600px) { .line { flex-direction: column; } }
+.thumb svg path, .line-thumb svg path { vector-effect: non-scaling-stroke; stroke-width: 1.3px; }
+.thumb svg circle, .line-thumb svg circle { display: none; }
+.topbar { row-gap: .4rem; }
+@media (max-width: 1350px) { .userbox span { display: none; } }

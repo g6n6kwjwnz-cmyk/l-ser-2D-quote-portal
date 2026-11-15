@@ -1,0 +1,48 @@
+{% extends "public/base.html" %}
+{% block title %}Petición {{ req.number }} · {{ company.name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Petición {{ req.number }}</h1><p class="muted">{{ req.company }} · enviada el {{ req.created_at.strftime('%d/%m/%Y') }}</p></div>
+</div>
+{% set steps = [('recibida','Recibida'),('en_estudio','En estudio'),('enviada','Oferta enviada'),('final','Respuesta')] %}
+{% set order = {'recibida':0,'en_estudio':1,'enviada':2,'cambios':2,'aceptada':3,'rechazada':3,'caducada':3} %}
+<ol class="steps">{% for k, l in steps %}<li class="{% if loop.index0 <= order.get(req.status, 0) %}done{% endif %}">{% if k == 'final' and req.status in ('aceptada','rechazada','caducada') %}{{ {'aceptada':'Aceptada','rechazada':'Rechazada','caducada':'Caducada'}[req.status] }}{% else %}{{ l }}{% endif %}</li>{% endfor %}</ol>
+
+{% if responded %}<div class="alert ok">Gracias, hemos registrado su respuesta.</div>{% endif %}
+{% if req.status in ('recibida','en_estudio') %}<div class="alert warn">Estamos preparando su oferta. Le avisaremos por correo cuando esté lista.</div>{% endif %}
+{% if req.status == 'cambios' %}<div class="alert warn">Ha solicitado cambios. Le enviaremos una oferta revisada.</div>{% endif %}
+{% if req.status == 'caducada' %}<div class="alert warn">Esta oferta ha caducado. Contacte con nosotros si desea una actualización.</div>{% endif %}
+
+<section class="card">
+  <div class="page-head"><h2>{% if show_offer %}Oferta {{ req.offer_number }}{% else %}Piezas solicitadas{% endif %}</h2>
+  {% if show_offer %}<a class="btn primary" href="/solicitud/{{ token }}/oferta.pdf">Descargar PDF</a>{% endif %}</div>
+  <div class="table-wrap"><table>
+    <thead><tr><th></th><th>Pieza</th><th>Material</th><th class="num">Cant.</th>{% if show_offer %}<th class="num">Precio ud.</th><th class="num">Importe</th>{% endif %}</tr></thead>
+    <tbody>{% for it in req.items %}
+      <tr><td class="thumb">{{ it.part.svg|safe }}</td>
+        <td><strong>{{ it.part.filename }}</strong><br><span class="muted small">{{ it.part.metrics.bbox_width_mm|num(1) }} × {{ it.part.metrics.bbox_height_mm|num(1) }} mm{% if it.notes %} · {{ it.notes }}{% endif %}</span></td>
+        <td>{{ it.material.name }}<br><span class="muted small">{{ it.thickness_mm|num(1) }} mm{% if it.supply == 'cliente' %} · aportado por usted{% endif %}</span></td>
+        <td class="num">{{ it.quantity }}</td>
+        {% if show_offer %}<td class="num">{{ it.unit_price|eur }}</td><td class="num"><strong>{{ (it.unit_price * it.quantity)|eur }}</strong></td>{% endif %}</tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% if show_offer %}<p class="right">Base imponible <strong>{{ req.offer_subtotal|eur }}</strong> <span class="muted small">(IVA no incluido)</span><br>
+    <span class="muted small">Válida hasta el {{ req.valid_until.strftime('%d/%m/%Y') }} · {{ req.lead_time }}</span></p>{% endif %}
+</section>
+
+{% if req.status in ('enviada','cambios') %}
+<section class="card">
+  <h2>Su respuesta</h2>
+  <form method="post" action="/solicitud/{{ token }}/responder" class="stack">
+    <div class="field"><label for="comment">Comentario (opcional)</label><textarea id="comment" name="comment" rows="3" maxlength="2000" placeholder="Número de pedido, cambios que necesita…"></textarea></div>
+    <div class="actions">
+      <button class="btn primary" name="action" value="aceptar">Aceptar oferta</button>
+      <button class="btn" name="action" value="cambios">Pedir cambios</button>
+      <button class="btn danger" name="action" value="rechazar">Rechazar</button>
+    </div>
+  </form>
+</section>
+{% elif req.status in ('aceptada','rechazada') %}
+<section class="card"><p>Respuesta registrada el {{ req.responded_at.strftime('%d/%m/%Y %H:%M') }}: <strong>{{ {'aceptada':'oferta aceptada','rechazada':'oferta rechazada'}[req.status] }}</strong>{% if req.customer_response %}<br><span class="muted">«{{ req.customer_response }}»</span>{% endif %}</p></section>
+{% endif %}
+{% endblock %}

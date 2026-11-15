@@ -38,6 +38,23 @@ y calcular el coste de fabricación.
 Pendiente para fases siguientes: roles y 2FA para administración, cifrado en reposo,
 registro de auditoría, política de retención RGPD, portal de cliente, estados de la petición y PDF de oferta.
 
+## Peticiones de clientes y ofertas
+
+- **Zona pública** (`/solicitar`, sin login): el cliente deja sus datos y sus piezas (plano DXF/DWG, material, espesor,
+  cantidad, quién pone la chapa). Se validan los planos al momento, se pide consentimiento RGPD y hay protección
+  antispam (campo trampa + límite por IP). Recibe un número de petición y un **enlace privado** (`/solicitud/<token>`)
+  para ver el estado; nunca ve máquinas, tiempos, costes ni márgenes.
+- **Bandeja interna** (`/peticiones`): el portal calcula cada línea con la máquina y gas por defecto, se puede cambiar
+  máquina/gas, ajustar el precio, las condiciones y notas internas. «Generar oferta» crea el PDF (`O-AAAA-NNNN`),
+  renueva el enlace del cliente y, si hay SMTP, lo envía por correo con el PDF adjunto.
+- **Cliente**: descarga el PDF y acepta, pide cambios o rechaza desde su enlace. Las ofertas caducan solas.
+- **RGPD**: supresión completa de una petición y sus piezas desde la ficha interna. Los tokens de acceso se guardan
+  solo como hash.
+- **Empresa** (`/empresa`): razón social, CIF, dirección y condiciones por defecto que salen en el PDF.
+
+Correo (opcional) en `.env`: `PORTAL_SMTP_HOST`, `PORTAL_SMTP_PORT`, `PORTAL_SMTP_USER`, `PORTAL_SMTP_PASSWORD`,
+`PORTAL_SMTP_FROM`, `PORTAL_NOTIFY_EMAIL` y `PORTAL_PUBLIC_BASE_URL` (dirección pública del portal para los enlaces).
+
 ## Puesta en marcha
 
 ```bash

@@ -125,3 +125,35 @@ document.addEventListener("DOMContentLoaded", () => {
     update();
   });
 });
+
+// ----- formulario público: añadir/quitar piezas
+document.addEventListener("DOMContentLoaded", () => {
+  const box = document.getElementById("items");
+  const add = document.querySelector("[data-add-item]");
+  if (!box || !add) return;
+  const max = +box.dataset.max || 20;
+  const renumber = () => box.querySelectorAll("[data-item-num]").forEach((el, i) => { el.textContent = i + 1; });
+  add.addEventListener("click", () => {
+    const items = box.querySelectorAll(".item");
+    if (items.length >= max) return;
+    const last = items[items.length - 1];
+    const next = Math.max(...[...box.querySelectorAll("[name^='item-']")].map((e) => +e.name.split("-")[1])) + 1;
+    const clone = last.cloneNode(true);
+    clone.classList.remove("has-error");
+    clone.querySelectorAll(".error-text").forEach((e) => e.remove());
+    clone.querySelectorAll(".has-error").forEach((e) => e.classList.remove("has-error"));
+    clone.querySelectorAll("[name]").forEach((el) => {
+      el.name = el.name.replace(/^item-\d+-/, `item-${next}-`);
+      if (el.type === "file" || el.name.endsWith("-notes") || el.name.endsWith("-quantity")) el.value = "";
+    });
+    box.appendChild(clone);
+    renumber();
+    clone.querySelector("input[type=file]").focus();
+  });
+  box.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("[data-remove-item]");
+    if (!btn) return;
+    if (box.querySelectorAll(".item").length > 1) btn.closest(".item").remove();
+    renumber();
+  });
+});

@@ -6,3 +6,4 @@ python-multipart==0.0.33
 pydantic-settings==2.16.3
 ezdxf==1.4.5
 shapely==2.2.0
+reportlab==5.1.0

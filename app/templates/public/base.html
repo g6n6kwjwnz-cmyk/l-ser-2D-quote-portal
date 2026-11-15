@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>{% block title %}Pedir oferta · {{ company.name }}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar public">
+    <span class="brand">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v7M12 15v7M5 12h3M16 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>
+      <span>{{ company.name }} <small>Corte por láser</small></span>
+    </span>
+  </header>
+  <main class="container public-main">{% block content %}{% endblock %}</main>
+  <footer class="footer">{{ company.name }}{% if company.email %} · {{ company.email }}{% endif %}{% if company.phone %} · {{ company.phone }}{% endif %}<br>
+    Sus planos son confidenciales: solo se usan para preparar su oferta y no se guardan los ficheros originales.</footer>
+</body>
+</html>

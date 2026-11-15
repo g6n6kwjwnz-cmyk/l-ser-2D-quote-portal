@@ -104,37 +104,62 @@ def list_parts(request: Request, db: Session = Depends(get_db)):
         "parts": parts, "max_mb": settings.max_upload_mb})
 
 
-@router.post("")
-async def upload_part(request: Request, file: UploadFile = File(...), units: str = Form("auto"),
-                      db: Session = Depends(get_db)):
-    def fail(msg: str, status: int = 422):
-        parts = db.scalars(select(Part).order_by(Part.created_at.desc()).limit(100)).all()
-        return templates.TemplateResponse(request, "parts/list.html", {
-            "parts": parts, "max_mb": settings.max_upload_mb, "error": msg}, status_code=status)
+class UploadError(ValueError):
+    def __init__(self, msg: str, status: int = 422):
+        super().__init__(msg)
+        self.status = status
 
+
+def _preview_contours(contours, max_points: int = 200) -> list:
+    """Contornos simplificados para miniaturas (PDF de oferta). Sin datos del fichero original."""
+    out = []
+    for c in contours[:300]:
+        step = max(1, len(c.points) // max_points)
+        pts = [[round(x, 2), round(y, 2)] for x, y in c.points[::step]]
+        out.append([pts, c.closed, c.kind])
+    return out
+
+
+async def part_from_upload(file: UploadFile, units: str = "auto") -> Part:
+    """Valida y analiza un plano subido. Devuelve la pieza (sin guardar) o lanza UploadError.
+
+    El fichero original nunca se guarda: solo métricas, vista previa y huella SHA-256.
+    """
     name = _SAFE_NAME.sub("_", os.path.basename(file.filename or "pieza"))[:200] or "pieza"
     ext = Path(name).suffix.lower()
     if ext not in ALLOWED_EXT:
-        return fail("Formato no admitido. Sube un plano DXF o DWG.")
+        raise UploadError("Formato no admitido. Sube un plano DXF o DWG.")
     limit = settings.max_upload_mb * 1024 * 1024
     data = await file.read(limit + 1)
     if len(data) > limit:
-        return fail(f"El fichero supera el máximo de {settings.max_upload_mb} MB.", 413)
+        raise UploadError(f"El fichero supera el máximo de {settings.max_upload_mb} MB.", 413)
     kind = _sniff(data)
     if kind is None or f".{kind}" != ext:
-        return fail("El contenido del fichero no corresponde a un DXF/DWG válido.")
+        raise UploadError("El contenido del fichero no corresponde a un DXF/DWG válido.")
+    if units not in UNIT_CHOICES:
+        raise UploadError("Unidad no válida.")
     try:
-        if units not in UNIT_CHOICES:
-            return fail("Unidad no válida.")
         geom, contours = _analyze_dwg(data, units) if kind == "dwg" else analyze_dxf(data, units)
         svg = render_svg(contours)
     except GeometryError as exc:
-        return fail(str(exc))
-    part = Part(filename=name, sha256=hashlib.sha256(data).hexdigest(), size_bytes=len(data),
-                metrics=geom.to_dict(), svg=svg)
+        raise UploadError(str(exc)) from exc
+    metrics = geom.to_dict()
+    metrics["preview"] = _preview_contours(contours)
+    return Part(filename=name, sha256=hashlib.sha256(data).hexdigest(), size_bytes=len(data),
+                metrics=metrics, svg=svg)
+
+
+@router.post("")
+async def upload_part(request: Request, file: UploadFile = File(...), units: str = Form("auto"),
+                      db: Session = Depends(get_db)):
+    try:
+        part = await part_from_upload(file, units)
+    except UploadError as exc:
+        parts = db.scalars(select(Part).order_by(Part.created_at.desc()).limit(100)).all()
+        return templates.TemplateResponse(request, "parts/list.html", {
+            "parts": parts, "max_mb": settings.max_upload_mb, "error": str(exc)}, status_code=exc.status)
     db.add(part)
     db.commit()
-    # El fichero original no se almacena: solo métricas y vista previa
     return RedirectResponse(f"/piezas/{part.id}", status_code=303)
 
 

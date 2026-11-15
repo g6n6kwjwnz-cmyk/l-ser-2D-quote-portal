@@ -9,7 +9,7 @@ from sqlalchemy import inspect, text
 
 from .auth import COOKIE_NAME, user_from_token
 from .db import Base, SessionLocal, engine
-from .routers import auth, catalog, machines, parts
+from .routers import auth, catalog, machines, parts, profile, public, requests
 from .seed import seed
 
 
@@ -33,12 +33,15 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="Portal de ofertas · Corte láser 2D", lifespan=lifespan, docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 app.include_router(auth.router)
+app.include_router(public.router)
+app.include_router(requests.router)
+app.include_router(profile.router)
 app.include_router(parts.router)
 app.include_router(machines.router)
 app.include_router(catalog.router)
 
 
-PUBLIC_PATHS = ("/login", "/static/", "/salud")
+PUBLIC_PATHS = ("/login", "/static/", "/salud", "/solicitar", "/solicitud/")
 
 
 @app.middleware("http")
@@ -81,7 +84,7 @@ async def security(request: Request, call_next):
 
 @app.get("/")
 def home():
-    return RedirectResponse("/piezas")
+    return RedirectResponse("/peticiones")
 
 
 @app.get("/salud")

@@ -178,3 +178,118 @@ class UserSession(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     user: Mapped[User] = relationship()
+
+
+REQUEST_STATUSES = {
+    "recibida": "Recibida",
+    "en_estudio": "En estudio",
+    "enviada": "Oferta enviada",
+    "cambios": "Cambios solicitados",
+    "aceptada": "Aceptada",
+    "rechazada": "Rechazada",
+    "caducada": "Caducada",
+    "anulada": "Anulada",
+}
+SUPPLY_OPTIONS = {"nosotros": "Material incluido en la oferta", "cliente": "Material aportado por el cliente"}
+
+
+class QuoteRequest(Base):
+    """Petición de oferta de un cliente externo y, después, la oferta que se le envía."""
+    __tablename__ = "quote_requests"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    number: Mapped[str] = mapped_column(String(20), unique=True, default="")
+    status: Mapped[str] = mapped_column(String(20), default="recibida")
+    access_token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    # cliente
+    company: Mapped[str] = mapped_column(String(160))
+    tax_id: Mapped[str] = mapped_column(String(30), default="")
+    contact: Mapped[str] = mapped_column(String(120))
+    email: Mapped[str] = mapped_column(String(254))
+    phone: Mapped[str] = mapped_column(String(40), default="")
+    address: Mapped[str] = mapped_column(String(300), default="")
+    customer_reference: Mapped[str] = mapped_column(String(120), default="")
+    desired_date: Mapped[str] = mapped_column(String(20), default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    consent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_ip: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+    # oferta (uso interno hasta que se envía)
+    offer_number: Mapped[str] = mapped_column(String(20), default="")
+    offer_issued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    valid_days: Mapped[int] = mapped_column(Integer, default=30)
+    lead_time: Mapped[str] = mapped_column(String(200), default="")
+    delivery: Mapped[str] = mapped_column(String(200), default="")
+    payment: Mapped[str] = mapped_column(String(200), default="")
+    offer_notes: Mapped[str] = mapped_column(Text, default="")
+    internal_notes: Mapped[str] = mapped_column(Text, default="")
+    customer_response: Mapped[str] = mapped_column(Text, default="")
+    responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    email_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    items: Mapped[list[RequestItem]] = relationship(back_populates="request", cascade="all, delete-orphan",
+                                                    order_by="RequestItem.position")
+
+    @property
+    def offer_subtotal(self) -> float:
+        return round(sum((i.unit_price or 0) * i.quantity for i in self.items), 2)
+
+    @property
+    def valid_until(self):
+        if not self.offer_issued_at:
+            return None
+        from datetime import timedelta
+        issued = self.offer_issued_at if self.offer_issued_at.tzinfo else self.offer_issued_at.replace(tzinfo=timezone.utc)
+        return issued + timedelta(days=self.valid_days)
+
+    @property
+    def is_expired(self) -> bool:
+        vu = self.valid_until
+        return bool(vu and self.status == "enviada" and vu < _now())
+
+
+class RequestItem(Base):
+    __tablename__ = "request_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    request_id: Mapped[int] = mapped_column(ForeignKey("quote_requests.id", ondelete="CASCADE"))
+    position: Mapped[int] = mapped_column(Integer, default=1)
+    part_id: Mapped[str] = mapped_column(ForeignKey("parts.id"))
+    material_id: Mapped[int] = mapped_column(ForeignKey("materials.id"))
+    thickness_mm: Mapped[float] = mapped_column(Float)
+    quantity: Mapped[int] = mapped_column(Integer)
+    supply: Mapped[str] = mapped_column(String(20), default="nosotros")
+    notes: Mapped[str] = mapped_column(String(500), default="")
+    # cálculo interno
+    machine_id: Mapped[int | None] = mapped_column(ForeignKey("machines.id", ondelete="SET NULL"), nullable=True)
+    gas: Mapped[str] = mapped_column(String(10), default="")
+    calc_unit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    unit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    calc_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    calc_error: Mapped[str] = mapped_column(String(300), default="")
+
+    request: Mapped[QuoteRequest] = relationship(back_populates="items")
+    part: Mapped[Part] = relationship()
+    material: Mapped[Material] = relationship()
+    machine: Mapped[Machine | None] = relationship()
+
+
+class CompanyProfile(Base):
+    """Datos de la empresa y condiciones por defecto que aparecen en el PDF de oferta (una fila)."""
+    __tablename__ = "company_profile"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(160), default="")
+    tax_id: Mapped[str] = mapped_column(String(30), default="")
+    address: Mapped[str] = mapped_column(String(300), default="")
+    phone: Mapped[str] = mapped_column(String(40), default="")
+    email: Mapped[str] = mapped_column(String(254), default="")
+    web: Mapped[str] = mapped_column(String(120), default="")
+    valid_days: Mapped[int] = mapped_column(Integer, default=30)
+    lead_time: Mapped[str] = mapped_column(String(200), default="")
+    delivery: Mapped[str] = mapped_column(String(200), default="")
+    payment: Mapped[str] = mapped_column(String(200), default="")
+    vat_pct: Mapped[float] = mapped_column(Float, default=21.0)
+    extra_conditions: Mapped[str] = mapped_column(Text, default="")
+    response_days: Mapped[int] = mapped_column(Integer, default=2, doc="Días laborables en que se promete responder")

@@ -1,0 +1,53 @@
+{% extends "public/base.html" %}
+{% block content %}
+<h1>Pedir oferta de corte por láser</h1>
+<p class="muted">Chapa de hasta {{ max_t|num(0) }} mm. Envíenos sus planos y le responderemos con la oferta en unos {{ company.response_days }} días laborables.</p>
+{% if errors %}<div class="alert error" role="alert">Revise los campos marcados.{% if errors.get('items') %} {{ errors['items'] }}{% endif %}</div>{% endif %}
+<form method="post" enctype="multipart/form-data" novalidate class="request-form">
+  <div class="hp" aria-hidden="true"><label>No rellenar <input name="website" tabindex="-1" autocomplete="off"></label></div>
+
+  <fieldset class="card"><legend>Sus datos</legend>
+    <div class="fields">
+      {% for k, label, req, type, auto in [('company','Empresa',1,'text','organization'),('tax_id','CIF / NIF',0,'text','off'),('contact','Persona de contacto',1,'text','name'),('email','Correo',1,'email','email'),('phone','Teléfono',0,'tel','tel'),('customer_reference','Su referencia',0,'text','off')] %}
+      <div class="field {% if errors.get(k) %}has-error{% endif %}"><label for="{{ k }}">{{ label }}{% if req %} *{% endif %}</label>
+        <input id="{{ k }}" name="{{ k }}" type="{{ type }}" autocomplete="{{ auto }}" maxlength="200" value="{{ values.get(k, '') }}" {% if req %}required{% endif %}>
+        {% if errors.get(k) %}<p class="error-text">{{ errors[k] }}</p>{% endif %}</div>
+      {% endfor %}
+      <div class="field wide"><label for="address">Dirección de entrega</label><input id="address" name="address" maxlength="200" autocomplete="street-address" value="{{ values.get('address','') }}"></div>
+    </div>
+  </fieldset>
+
+  <fieldset class="card"><legend>Piezas</legend>
+    <p class="help">Un plano DXF o DWG por pieza (máx. {{ max_mb }} MB cada uno, hasta {{ max_items }} piezas).</p>
+    <div id="items" data-max="{{ max_items }}">
+    {% for it in values['items'] %}{% set i = loop.index0 %}{% set e = item_errors.get(i, {}) %}
+      <div class="item card-inner {% if e %}has-error{% endif %}">
+        <div class="item-head"><strong>Pieza <span data-item-num>{{ loop.index }}</span></strong><button type="button" class="btn ghost small-btn" data-remove-item>Quitar</button></div>
+        <div class="fields">
+          <div class="field wide {% if e.file %}has-error{% endif %}"><label>Plano (DXF/DWG) *</label><input type="file" name="item-{{ i }}-file" accept=".dxf,.dwg" required>{% if e.file %}<p class="error-text">{{ e.file }}</p>{% endif %}</div>
+          <div class="field {% if e.material %}has-error{% endif %}"><label>Material *</label>
+            <select name="item-{{ i }}-material">{% for m in materials %}<option value="{{ m.id }}" {% if it.get('material') == m.id|string %}selected{% endif %}>{{ m.name }}</option>{% endfor %}</select>
+            {% if e.material %}<p class="error-text">{{ e.material }}</p>{% endif %}</div>
+          <div class="field {% if e.thickness %}has-error{% endif %}"><label>Espesor (mm) *</label><input type="number" name="item-{{ i }}-thickness" min="{{ min_t }}" max="{{ max_t }}" step="0.1" inputmode="decimal" value="{{ it.get('thickness','') }}" required>{% if e.thickness %}<p class="error-text">{{ e.thickness }}</p>{% endif %}</div>
+          <div class="field {% if e.quantity %}has-error{% endif %}"><label>Cantidad *</label><input type="number" name="item-{{ i }}-quantity" min="1" max="100000" step="1" value="{{ it.get('quantity','') }}" required>{% if e.quantity %}<p class="error-text">{{ e.quantity }}</p>{% endif %}</div>
+          <div class="field"><label>Suministro de chapa</label><select name="item-{{ i }}-supply">{% for k, l in supply.items() %}<option value="{{ k }}" {% if it.get('supply') == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+          <div class="field wide"><label>Observaciones</label><input name="item-{{ i }}-notes" maxlength="500" value="{{ it.get('notes','') }}" placeholder="Acabado, tolerancias, marcado…"></div>
+        </div>
+      </div>
+    {% endfor %}
+    </div>
+    <button type="button" class="btn" data-add-item>+ Añadir otra pieza</button>
+  </fieldset>
+
+  <fieldset class="card"><legend>Otros datos</legend>
+    <div class="fields">
+      <div class="field {% if errors.desired_date %}has-error{% endif %}"><label for="desired_date">Fecha deseada de entrega</label><input id="desired_date" name="desired_date" type="date" value="{{ values.get('desired_date','') }}"></div>
+      <div class="field wide"><label for="notes">Comentarios</label><textarea id="notes" name="notes" rows="3" maxlength="2000">{{ values.get('notes','') }}</textarea></div>
+    </div>
+    <label class="check consent {% if errors.consent %}has-error{% endif %}"><input type="checkbox" name="consent" required>
+      <span>He leído y acepto que {{ company.name }} trate mis datos y planos con la única finalidad de preparar y gestionar esta oferta, conforme al RGPD. Puedo pedir su supresión en cualquier momento{% if company.email %} escribiendo a {{ company.email }}{% endif %}.</span></label>
+    {% if errors.consent %}<p class="error-text">{{ errors.consent }}</p>{% endif %}
+  </fieldset>
+  <div class="form-actions"><button class="btn primary" type="submit">Enviar petición</button></div>
+</form>
+{% endblock %}

@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Peticiones · {{ app_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Peticiones de clientes</h1><p class="muted">Formulario público para clientes: <a href="/solicitar" target="_blank" rel="noopener">/solicitar</a></p></div>
+</div>
+<nav class="tabs">
+  <a href="/peticiones" {% if not estado %}aria-current="page"{% endif %}>Todas</a>
+  {% for k, l in statuses.items() %}{% if counts.get(k) %}<a href="/peticiones?estado={{ k }}" {% if estado == k %}aria-current="page"{% endif %}>{{ l }} <span class="count">{{ counts[k] }}</span></a>{% endif %}{% endfor %}
+</nav>
+{% if not reqs %}<div class="empty">No hay peticiones{% if estado %} en este estado{% endif %}.</div>{% else %}
+<div class="table-wrap bordered"><table>
+  <thead><tr><th>Nº</th><th>Cliente</th><th class="num">Piezas</th><th>Estado</th><th class="num">Importe</th><th>Recibida</th></tr></thead>
+  <tbody>{% for r in reqs %}
+    <tr><td><a href="/peticiones/{{ r.id }}"><strong>{{ r.number }}</strong></a>{% if r.offer_number %}<br><span class="muted small">{{ r.offer_number }}</span>{% endif %}</td>
+      <td>{{ r.company }}<br><span class="muted small">{{ r.contact }} · {{ r.email }}</span></td>
+      <td class="num">{{ r.items|length }}</td>
+      <td><span class="badge st-{{ r.status }}">{{ statuses[r.status] }}</span></td>
+      <td class="num">{% if r.offer_subtotal %}{{ r.offer_subtotal|eur }}{% else %}—{% endif %}</td>
+      <td>{{ r.created_at.strftime('%d/%m/%Y %H:%M') }}</td></tr>
+  {% endfor %}</tbody>
+</table></div>{% endif %}
+{% endblock %}

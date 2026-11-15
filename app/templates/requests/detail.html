@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}{{ req.number }} · Peticiones{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="/peticiones">Peticiones</a> /</p>
+<div class="page-head">
+  <div><h1>{{ req.number }} <span class="badge st-{{ req.status }}">{{ statuses[req.status] }}</span></h1>
+    <p class="muted">Recibida el {{ req.created_at.strftime('%d/%m/%Y %H:%M') }}{% if req.offer_number %} · Oferta {{ req.offer_number }}{% if req.offer_issued_at %} del {{ req.offer_issued_at.strftime('%d/%m/%Y') }}{% endif %}{% endif %}</p></div>
+  <div class="actions">
+    <a class="btn" href="/peticiones/{{ req.id }}/oferta.pdf" target="_blank" rel="noopener">{{ 'Ver PDF' if req.offer_number else 'Vista previa PDF' }}</a>
+  </div>
+</div>
+
+{% if enviado %}
+  <div class="alert ok">Oferta {{ req.offer_number }} generada.
+    {% if enviado == 'correo' %}Enviada por correo a {{ req.email }} con el PDF y el enlace.{% else %}No hay correo configurado: descarga el PDF y envíaselo al cliente junto con su enlace.{% endif %}
+    {% if sent_link %}<br><strong>Enlace del cliente</strong> (se muestra solo ahora; el anterior deja de funcionar):<br><span class="mono">{{ sent_link }}</span>{% endif %}</div>
+{% endif %}
+{% if req.status in ('aceptada','rechazada','cambios') and req.responded_at %}
+  <div class="alert {{ 'ok' if req.status == 'aceptada' else 'warn' }}">Respuesta del cliente ({{ req.responded_at.strftime('%d/%m/%Y %H:%M') }}): <strong>{{ statuses[req.status] }}</strong>{% if req.customer_response %} · «{{ req.customer_response }}»{% endif %}</div>
+{% endif %}
+
+<div class="grid-cards">
+  <section class="card"><h2>Cliente</h2>
+    <dl class="kv"><dt>Empresa</dt><dd>{{ req.company }}</dd><dt>CIF</dt><dd>{{ req.tax_id or '—' }}</dd>
+      <dt>Contacto</dt><dd>{{ req.contact }}</dd><dt>Correo</dt><dd>{{ req.email }}</dd><dt>Teléfono</dt><dd>{{ req.phone or '—' }}</dd>
+      <dt>Su referencia</dt><dd>{{ req.customer_reference or '—' }}</dd><dt>Fecha deseada</dt><dd>{{ req.desired_date or '—' }}</dd>
+      <dt>Consentimiento RGPD</dt><dd>{{ req.consent_at.strftime('%d/%m/%Y %H:%M') }}</dd></dl>
+    {% if req.address %}<p class="small muted">Entrega: {{ req.address }}</p>{% endif %}
+    {% if req.notes %}<p><strong>Comentarios:</strong> {{ req.notes }}</p>{% endif %}
+  </section>
+</div>
+
+<form method="post" action="/peticiones/{{ req.id }}/guardar" id="req-form">
+<section class="card">
+  <div class="page-head"><h2>Líneas de la oferta</h2>
+    {% if editable %}<button class="btn" name="accion" value="recalcular" type="submit">Recalcular todo</button>{% endif %}</div>
+  <p class="help">Solo para uso interno: el cliente ve únicamente el precio unitario final.</p>
+  {% for it in req.items %}{% set s = it.calc_snapshot or {} %}
+  <div class="line">
+    <div class="line-thumb">{{ it.part.svg|safe }}</div>
+    <div class="line-main">
+      <p><strong>{{ it.position }}. {{ it.part.filename }}</strong> · {{ it.material.code }} {{ it.thickness_mm|num(1) }} mm · <strong>{{ it.quantity }} uds.</strong>{% if it.supply == 'cliente' %} · <span class="badge warn">material del cliente</span>{% endif %}</p>
+      <p class="muted small">{{ it.part.metrics.bbox_width_mm|num(1) }} × {{ it.part.metrics.bbox_height_mm|num(1) }} mm · corte {{ it.part.metrics.cut_length_mm|num(0) }} mm · {{ it.part.metrics.pierce_count }} perforaciones{% if it.notes %} · «{{ it.notes }}»{% endif %}</p>
+      {% for w in it.part.metrics.warnings %}<p class="warn-text small">⚠ {{ w }}</p>{% endfor %}
+      {% for w in s.get('warnings', []) %}<p class="warn-text small">⚠ {{ w }}</p>{% endfor %}
+      {% if it.calc_error %}<p class="error-text">{{ it.calc_error }}</p>{% endif %}
+      <div class="line-controls">
+        <label>Máquina <select name="i{{ it.id }}-machine" {% if not editable %}disabled{% endif %}>{% for m in machines %}<option value="{{ m.id }}" {% if m.id == it.machine_id %}selected{% endif %}>{{ m.name }}</option>{% endfor %}</select></label>
+        <label>Gas <select name="i{{ it.id }}-gas" {% if not editable %}disabled{% endif %}>{% for g in (options.get(it.machine_id, {}).get(it.material.family) or GASES.keys()) %}<option value="{{ g }}" {% if g == it.gas %}selected{% endif %}>{{ GASES[g] }}</option>{% endfor %}</select></label>
+        <label>Precio ud. (€) <input name="i{{ it.id }}-price" type="number" step="0.01" min="0" value="{{ '%.2f'|format(it.unit_price) if it.unit_price is not none else '' }}" {% if not editable %}disabled{% endif %}></label>
+        <span class="calc">Calculado: <strong>{{ it.calc_unit_price|eur if it.calc_unit_price is not none else '—' }}</strong> · Importe: <strong>{{ ((it.unit_price or 0) * it.quantity)|eur }}</strong></span>
+      </div>
+      {% if s %}<details class="small"><summary>Desglose interno</summary>
+        <p class="muted">Tiempo/pieza {{ s.part_time_s|dur }} · pedido {{ (s.order_time_h*3600)|dur }} · {{ s.parts_per_sheet }} uds./chapa · {{ s.sheets_needed }} chapa(s) · aprovechamiento {{ s.sheet_utilization_pct|num(1) }} %<br>
+        Máquina {{ s.machine_cost|eur }} · gas {{ s.gas_cost|eur }} · energía {{ s.energy_cost|eur }} · material {{ s.material_cost|eur }} · preparación {{ s.setup_cost|eur }} → coste {{ s.total_cost|eur }} · margen {{ s.margin_pct|num(1) }} %{% if s.discount_pct %} · dto. {{ s.discount_pct|num(1) }} %{% endif %}{% if s.min_order_applied %} · mínimo aplicado{% endif %} → {{ s.total_price|eur }}</p></details>{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+  <p class="right">Base imponible: <strong>{{ req.offer_subtotal|eur }}</strong></p>
+</section>
+
+<section class="card"><h2>Condiciones de esta oferta</h2>
+  <div class="fields">
+    <div class="field"><label for="valid_days">Validez <span class="unit">días</span></label><input id="valid_days" name="valid_days" type="number" min="1" max="365" value="{{ req.valid_days }}" {% if not editable %}disabled{% endif %}></div>
+    <div class="field"><label for="lead_time">Plazo de entrega</label><input id="lead_time" name="lead_time" maxlength="200" value="{{ req.lead_time }}" {% if not editable %}disabled{% endif %}></div>
+    <div class="field"><label for="delivery">Entrega / portes</label><input id="delivery" name="delivery" maxlength="200" value="{{ req.delivery }}" {% if not editable %}disabled{% endif %}></div>
+    <div class="field"><label for="payment">Forma de pago</label><input id="payment" name="payment" maxlength="200" value="{{ req.payment }}" {% if not editable %}disabled{% endif %}></div>
+    <div class="field wide"><label for="offer_notes">Observaciones para el cliente (salen en el PDF)</label><textarea id="offer_notes" name="offer_notes" rows="2" {% if not editable %}disabled{% endif %}>{{ req.offer_notes }}</textarea></div>
+    <div class="field wide"><label for="internal_notes">Notas internas (no las ve el cliente)</label><textarea id="internal_notes" name="internal_notes" rows="2">{{ req.internal_notes }}</textarea></div>
+  </div>
+  {% if editable %}<div class="form-actions"><button class="btn" type="submit" name="accion" value="guardar">Guardar cambios</button></div>{% endif %}
+</section>
+</form>
+
+{% if editable %}
+<section class="card send-card">
+  <div><h2>Enviar oferta al cliente</h2>
+  <p class="muted small">{% if mail_on %}Se enviará por correo a {{ req.email }} con el PDF y un enlace para aceptar, pedir cambios o rechazar.{% else %}No hay correo configurado: se generará la oferta y el enlace del cliente para que los envíes tú.{% endif %} Guarda antes los cambios.</p></div>
+  <form method="post" action="/peticiones/{{ req.id }}/enviar"><button class="btn primary">Generar {% if mail_on %}y enviar {% endif %}oferta</button></form>
+</section>
+{% endif %}
+
+<div class="grid-cards">
+<section class="card"><h2>Cambiar estado</h2>
+  <form method="post" action="/peticiones/{{ req.id }}/estado" class="inline-form">
+    <select name="status" aria-label="Estado">{% for k, l in statuses.items() %}<option value="{{ k }}" {% if k == req.status %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    <button class="btn">Aplicar</button></form>
+  <p class="help">Para revisar una oferta ya enviada, pásala a «En estudio», modifica y vuelve a generarla.</p>
+</section>
+<details class="card danger-zone"><summary>Eliminar petición y planos (RGPD)</summary>
+  <p>Borra definitivamente los datos del cliente, las líneas y las piezas analizadas.</p>
+  <form method="post" action="/peticiones/{{ req.id }}/eliminar" class="inline-form">
+    <label for="confirm">Escribe <strong>{{ req.number }}</strong></label><input id="confirm" name="confirm" required autocomplete="off">
+    <button class="btn danger">Eliminar</button></form>
+</details>
+</div>
+{% endblock %}

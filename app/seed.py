@@ -6,7 +6,7 @@ están pensados para simular y deben ajustarse con los datos reales del taller d
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models import CostSettings, CutParameter, Machine, Material
+from .models import CompanyProfile, CostSettings, CutParameter, Machine, Material
 
 # (familia, gas, espesor mm, velocidad m/min, perforación s, caudal gas m3/h, kerf mm)
 EXAMPLE_PARAMS = [
@@ -85,5 +85,14 @@ def seed(db: Session) -> None:
             margin_pct=25.0, min_order_eur=60.0, sheet_x_mm=3000, sheet_y_mm=1500,
             part_gap_mm=5, sheet_edge_mm=10, scrap_recovery_pct=30,
             quantity_discounts=[[10, 3], [50, 7], [100, 10], [500, 15]],
+        ))
+    if db.scalar(select(CompanyProfile).limit(1)) is None:
+        # Huecos a completar desde «Empresa» en el menú
+        db.add(CompanyProfile(
+            name="NOMBRE DE LA EMPRESA, S.L.", tax_id="CIF pendiente", address="Dirección pendiente",
+            phone="", email="", web="", valid_days=30,
+            lead_time="7 días laborables desde la aceptación",
+            delivery="Recogida en nuestras instalaciones (portes no incluidos)",
+            payment="Transferencia a 30 días", vat_pct=21.0, response_days=2,
         ))
     db.commit()

@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% from "_macros.html" import field %}
+{% block title %}Empresa · {{ app_name }}{% endblock %}
+{% block content %}
+<h1>Empresa y condiciones de oferta</h1>
+<p class="muted">Estos datos aparecen en el PDF de oferta y en la zona pública de clientes.</p>
+{% if saved %}<div class="alert ok">Datos guardados.</div>{% endif %}
+{% if errors %}<div class="alert error">Revisa los campos marcados.</div>{% endif %}
+<form method="post" novalidate>
+  {% for title, fields in sections %}
+  <fieldset class="card"><legend>{{ title }}</legend><div class="fields">{% for f in fields %}{{ field(f, values, errors) }}{% endfor %}</div></fieldset>
+  {% endfor %}
+  <div class="form-actions"><button class="btn primary">Guardar</button></div>
+</form>
+{% endblock %}

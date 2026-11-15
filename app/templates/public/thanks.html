@@ -1,0 +1,16 @@
+{% extends "public/base.html" %}
+{% block content %}
+<div class="narrow">
+  <h1>Petición recibida</h1>
+  {% if req %}
+  <div class="alert ok">Su número de petición es <strong>{{ req.number }}</strong>.</div>
+  <p>Le enviaremos la oferta a <strong>{{ req.email }}</strong> en unos {{ company.response_days }} días laborables.</p>
+  <div class="card">
+    <p><strong>Enlace privado para consultar el estado</strong><br><span class="muted small">Guárdelo y no lo comparta: da acceso a su petición.</span></p>
+    <p><a href="{{ link }}" class="mono">{{ link }}</a></p>
+  </div>
+  {% else %}
+  <p>Gracias. Hemos recibido su petición.</p>
+  {% endif %}
+</div>
+{% endblock %}

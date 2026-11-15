@@ -15,10 +15,12 @@
     </a>
     <nav>
       {% set p = request.url.path %}
+      <a href="/peticiones" {% if p.startswith('/peticiones') %}aria-current="page"{% endif %}>Peticiones</a>
       <a href="/piezas" {% if p.startswith('/piezas') %}aria-current="page"{% endif %}>Piezas</a>
       <a href="/maquinas" {% if p.startswith('/maquinas') %}aria-current="page"{% endif %}>Máquinas</a>
       <a href="/materiales" {% if p.startswith('/materiales') %}aria-current="page"{% endif %}>Materiales</a>
       <a href="/parametros" {% if p.startswith('/parametros') %}aria-current="page"{% endif %}>Parámetros</a>
+      <a href="/empresa" {% if p.startswith('/empresa') %}aria-current="page"{% endif %}>Empresa</a>
     </nav>
     {% if request.state.user is defined and request.state.user %}
     <form method="post" action="/logout" class="userbox">
@@ -31,6 +33,6 @@
   <main class="container">
     {% block content %}{% endblock %}
   </main>
-  <footer class="footer">Fase 1 · Motor geométrico y de costes · Los planos originales no se almacenan</footer>
+  <footer class="footer">Uso interno · Los planos originales de los clientes no se almacenan</footer>
 </body>
 </html>

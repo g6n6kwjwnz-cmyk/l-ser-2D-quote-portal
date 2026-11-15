@@ -16,6 +16,18 @@ class Settings(BaseSettings):
     cookie_secure: bool = False      # poner a true en producción (HTTPS)
     max_failed_logins: int = 5
     lockout_minutes: int = 15
+    # Portal de clientes
+    public_base_url: str = "http://localhost:8000"   # URL pública para los enlaces de los correos y el PDF
+    max_items_per_request: int = 20
+    requests_per_ip_hour: int = 5
+    # Correo (opcional). Sin SMTP el portal genera el PDF y se envía a mano.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_starttls: bool = True
+    notify_email: str = ""                            # aviso interno de nuevas peticiones
 
 
 settings = Settings()
