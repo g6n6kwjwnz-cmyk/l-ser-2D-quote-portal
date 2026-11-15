@@ -16,6 +16,7 @@ from __future__ import annotations
 import io
 import math
 import os
+import re
 import tempfile
 from dataclasses import dataclass, field, asdict
 
@@ -77,6 +78,38 @@ class GeometryResult:
 # --------------------------------------------------------------------------- lectura
 
 BINARY_SENTINEL = b"AutoCAD Binary DXF"
+HANDLE_CODES = {"5", "105"}
+
+
+def repair_zero_handles(data: bytes) -> bytes:
+    """Algunos conversores (p. ej. LibreDWG dwg2dxf) escriben entidades con handle «0», que ezdxf rechaza.
+
+    Se reasignan handles nuevos no usados. Se trabaja en latin-1 para conservar los bytes tal cual.
+    """
+    text = data.decode("latin-1")
+    nl = "\r\n" if "\r\n" in text[:4096] else "\n"
+    lines = text.split(nl)
+    used = set()
+    for i in range(0, len(lines) - 1, 2):
+        if lines[i].strip() in HANDLE_CODES:
+            try:
+                used.add(int(lines[i + 1].strip(), 16))
+            except ValueError:
+                pass
+    next_handle = max(used | {0}) + 1
+    changed = False
+    for i in range(0, len(lines) - 1, 2):
+        if lines[i].strip() in HANDLE_CODES and lines[i + 1].strip() in ("0", ""):
+            lines[i + 1] = format(next_handle, "X")
+            next_handle += 1
+            changed = True
+    return nl.join(lines).encode("latin-1") if changed else data
+
+
+def read_header_units(data: bytes) -> int | None:
+    """Lee $INSUNITS directamente del texto (para conservar las unidades si hay que releer en modo mínimo)."""
+    m = re.search(rb"\$INSUNITS\s*\r?\n\s*70\s*\r?\n\s*(\d+)", data[:200_000])
+    return int(m.group(1)) if m else None
 
 
 def _read_document(data: bytes):
@@ -89,7 +122,12 @@ def _read_document(data: bytes):
                     fh.write(data)
                 doc = ezdxf.readfile(path)
             return doc
-        doc, auditor = recover.read(io.BytesIO(data))
+        try:
+            doc, auditor = recover.read(io.BytesIO(data))
+        except ValueError as exc:
+            if "handle" not in str(exc).lower():
+                raise
+            doc, auditor = recover.read(io.BytesIO(repair_zero_handles(data)))
     except (IOError, ezdxf.DXFStructureError, ValueError) as exc:
         raise GeometryError(f"El fichero no es un DXF válido ({exc}).") from exc
     if auditor.has_errors:
@@ -109,6 +147,7 @@ def _layer_is_ignored(doc, layer_name: str) -> bool:
 
 
 UNIT_CHOICES = {"auto": None, "mm": 4, "cm": 5, "m": 6, "in": 1}
+UNIT_CODES = {v: k for k, v in UNIT_CHOICES.items() if v}
 
 
 def _unit_factor(doc, warnings: list[str], override: int | None = None) -> tuple[float, str]:

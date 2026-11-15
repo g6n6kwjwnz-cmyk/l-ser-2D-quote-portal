@@ -14,4 +14,4 @@ Planos DXF sencillos para probar el portal (regenerables con `python ejemplos/ge
 | 08_pieza_con_errores_R2018 | Contorno abierto, línea duplicada y taladro Ø3 (avisos) |
 | 09_soporte_trapecio_R12 | Formato antiguo R12, sin unidades |
 
-DWG: es un formato cerrado; para subirlo hace falta instalar un conversor (LibreDWG/ODA) en el servidor.
+DWG: el portal los convierte con LibreDWG (`dwg2dxf`). Indica su ruta en `.env` con `PORTAL_DWG_CONVERTER=C:\ruta\dwg2dxf.exe`.

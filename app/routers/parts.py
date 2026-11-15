@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..costing.engine import CostingError, QuoteInput, compute_quote
 from ..db import get_db
-from ..geometry.dxf_engine import UNIT_CHOICES, GeometryError, analyze_dxf, render_svg
+from ..geometry.dxf_engine import UNIT_CHOICES, UNIT_CODES, GeometryError, analyze_dxf, read_header_units, render_svg
 from ..models import CostSettings, Machine, Material, Part
 from ..web import templates
 
@@ -40,22 +40,39 @@ def _sniff(data: bytes) -> str | None:
     return None
 
 
-def _convert_dwg(data: bytes) -> bytes:
+def _run_dwg2dxf(exe: str, data: bytes, minimal: bool) -> bytes | None:
+    with tempfile.TemporaryDirectory() as tmp:
+        src, dst = Path(tmp, "in.dwg"), Path(tmp, "out.dxf")
+        src.write_bytes(data)
+        cmd = [exe, "-y"] + (["-m"] if minimal else []) + ["-o", str(dst), str(src)]
+        try:
+            subprocess.run(cmd, timeout=60, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except (subprocess.SubprocessError, OSError):
+            return None
+        # dwg2dxf puede devolver código de error con avisos aunque genere el DXF: se valida el resultado
+        return dst.read_bytes() if dst.exists() and dst.stat().st_size > 0 else None
+
+
+def _analyze_dwg(data: bytes, units: str):
+    """DWG → DXF con LibreDWG. Primero DXF completo; si no se puede leer, DXF mínimo conservando unidades."""
     exe = shutil.which(settings.dwg_converter)
     if not exe:
         raise GeometryError("Los ficheros DWG necesitan un conversor (LibreDWG «dwg2dxf» u ODA File Converter) "
                             "que no está instalado en este servidor. Mientras tanto, exporta el plano a DXF.")
-    with tempfile.TemporaryDirectory() as tmp:
-        src, dst = Path(tmp, "in.dwg"), Path(tmp, "out.dxf")
-        src.write_bytes(data)
+    full = _run_dwg2dxf(exe, data, minimal=False)
+    if full:
         try:
-            subprocess.run([exe, "-y", "-o", str(dst), str(src)], check=True, timeout=60,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except (subprocess.SubprocessError, OSError) as exc:
-            raise GeometryError("No se ha podido convertir el DWG a DXF.") from exc
-        if not dst.exists():
-            raise GeometryError("No se ha podido convertir el DWG a DXF.")
-        return dst.read_bytes()
+            return analyze_dxf(full, units)
+        except GeometryError:
+            pass
+    minimal = _run_dwg2dxf(exe, data, minimal=True)
+    if not minimal:
+        raise GeometryError("No se ha podido convertir el DWG a DXF. Exporta el plano a DXF desde tu programa de CAD.")
+    if units == "auto" and full:
+        units = UNIT_CODES.get(read_header_units(full) or 0, "auto")
+    geom, contours = analyze_dxf(minimal, units)
+    geom.warnings.append("DWG leído en modo simplificado: revisa la vista previa (los bloques podrían no aparecer).")
+    return geom, contours
 
 
 def _part_or_404(db: Session, part_id: str) -> Part:
@@ -103,10 +120,9 @@ async def upload_part(request: Request, file: UploadFile = File(...), units: str
     if kind is None or f".{kind}" != ext:
         return fail("El contenido del fichero no corresponde a un DXF/DWG válido.")
     try:
-        dxf = _convert_dwg(data) if kind == "dwg" else data
         if units not in UNIT_CHOICES:
             return fail("Unidad no válida.")
-        geom, contours = analyze_dxf(dxf, units)
+        geom, contours = _analyze_dwg(data, units) if kind == "dwg" else analyze_dxf(data, units)
         svg = render_svg(contours)
     except GeometryError as exc:
         return fail(str(exc))

@@ -123,3 +123,22 @@ def test_block_on_ignored_layer_is_skipped(tmp_path):
     doc.saveas(p)
     g, _ = analyze_dxf(p.read_bytes())
     assert g.pierce_count == 1
+
+
+def _dxf_with_zero_handle(units=4):
+    import io
+    doc = ezdxf.new(units=units)
+    msp = doc.modelspace()
+    line = msp.add_line((0, 0), (10, 0))
+    msp.add_lwpolyline([(0, 0), (100, 0), (100, 50), (0, 50)], close=True)
+    s = io.StringIO()
+    doc.write(s)
+    return s.getvalue().replace(f"LINE\n  5\n{line.dxf.handle}\n", "LINE\n  5\n0\n", 1).encode()
+
+
+def test_zero_handle_from_converters_is_repaired():
+    from app.geometry.dxf_engine import read_header_units
+    data = _dxf_with_zero_handle(units=1)
+    assert read_header_units(data) == 1
+    g, _ = analyze_dxf(data)
+    assert g.contour_count == 2       # el rectángulo y la línea suelta (abierta)

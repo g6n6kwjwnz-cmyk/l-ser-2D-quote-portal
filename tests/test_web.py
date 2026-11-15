@@ -86,3 +86,34 @@ def test_settings_discounts(client):
     form["quantity_discounts"] = "20: 5\n100: 12"
     assert client.post("/parametros", data=form, follow_redirects=False).status_code == 303
     assert "100: 12" in client.get("/parametros").text
+
+
+def test_dwg_upload_with_converter(client, tmp_path, monkeypatch):
+    """Simula LibreDWG: un «DWG» falso cuyo conversor devuelve un DXF con handle 0."""
+    import stat
+    import sys
+    from app.config import settings
+    from tests.test_geometry import _dxf_with_zero_handle
+    payload = _dxf_with_zero_handle()
+    fake = tmp_path / "dwg2dxf"
+    fake.write_text(f"""#!{sys.executable}
+import sys
+args = sys.argv[1:]
+out = args[args.index("-o") + 1]
+src = args[-1]
+data = open(src, "rb").read()[6:]
+open(out, "wb").write(data)
+""")
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setattr(settings, "dwg_converter", str(fake))
+    r = client.post("/piezas", files={"file": ("pieza.dwg", b"AC1015" + payload, "application/acad")},
+                    follow_redirects=False)
+    assert r.status_code == 303, r.text
+    assert "100,0 × 50,0" in client.get(r.headers["location"]).text
+
+
+def test_dwg_without_converter(client, monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "dwg_converter", "no-existe-dwg2dxf")
+    r = client.post("/piezas", files={"file": ("p.dwg", b"AC1032" + b"\0" * 100, "application/acad")})
+    assert r.status_code == 422 and "conversor" in r.text
