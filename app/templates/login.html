@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Acceso · {{ app_name }}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="login-page">
+  <main class="login-box">
+    <div class="brand login-brand">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v7M12 15v7M5 12h3M16 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>
+      <span>Láser 2D <small>Ofertas</small></span>
+    </div>
+    <form method="post" action="/login" class="card">
+      <h1>Iniciar sesión</h1>
+      {% if error %}<div class="alert error" role="alert">{{ error }}</div>{% endif %}
+      {% if no_users %}<div class="alert warn">No hay usuarios creados. En el servidor ejecuta <code>python -m app.usuarios crear correo@empresa.es</code>.</div>{% endif %}
+      <input type="hidden" name="next" value="{{ next }}">
+      <div class="field"><label for="email">Usuario (correo)</label>
+        <input id="email" name="email" type="email" autocomplete="username" value="{{ email or '' }}" required autofocus></div>
+      <div class="field"><label for="password">Contraseña</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required></div>
+      <button class="btn primary block" type="submit">Entrar</button>
+    </form>
+    <p class="muted small center">Acceso restringido. Los planos y ofertas son confidenciales.</p>
+  </main>
+</body>
+</html>

@@ -1,13 +1,14 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from .auth import COOKIE_NAME, user_from_token
 from .db import Base, SessionLocal, engine
-from .routers import catalog, machines, parts
+from .routers import auth, catalog, machines, parts
 from .seed import seed
 
 
@@ -21,9 +22,27 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="Portal de ofertas · Corte láser 2D", lifespan=lifespan, docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
+app.include_router(auth.router)
 app.include_router(parts.router)
 app.include_router(machines.router)
 app.include_router(catalog.router)
+
+
+PUBLIC_PATHS = ("/login", "/static/", "/salud")
+
+
+@app.middleware("http")
+async def require_login(request: Request, call_next):
+    path = request.url.path
+    if not path.startswith(PUBLIC_PATHS):
+        with SessionLocal() as db:
+            user = user_from_token(db, request.cookies.get(COOKIE_NAME))
+        if user is None:
+            if request.method == "GET":
+                return RedirectResponse(f"/login?next={quote(path)}", status_code=303)
+            return PlainTextResponse("Sesión caducada. Vuelve a iniciar sesión.", status_code=401)
+        request.state.user = user
+    return await call_next(request)
 
 
 @app.middleware("http")

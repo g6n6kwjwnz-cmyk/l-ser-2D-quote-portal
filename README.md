@@ -24,12 +24,16 @@ y calcular el coste de fabricación.
 
 ### Seguridad ya incluida
 
+- **Acceso con usuario y contraseña** en todas las páginas. Contraseñas en hash scrypt con sal (nunca en claro,
+  ni en el repositorio), sesiones en servidor con cookie `HttpOnly`/`SameSite`, caducidad a las 12 h,
+  bloqueo de 15 min tras 5 intentos fallidos y mismo mensaje para usuario inexistente o clave errónea.
+  Usuarios gestionados con `python -m app.usuarios crear|listar|desactivar`. En producción con HTTPS: `PORTAL_COOKIE_SECURE=true`.
 - El plano original **no se guarda**: solo métricas, huella SHA-256 y la vista previa SVG generada en servidor.
 - Validación de subida por extensión, firma del contenido y tamaño máximo.
 - Cabeceras CSP, `X-Frame-Options`, `nosniff`, `Referrer-Policy`; rechazo de POST de otro origen (CSRF básico).
 - Identificadores de pieza no predecibles (UUID).
 
-Pendiente para fases siguientes: autenticación con roles y 2FA para administración, cifrado en reposo,
+Pendiente para fases siguientes: roles y 2FA para administración, cifrado en reposo,
 registro de auditoría, política de retención RGPD, portal de cliente, estados de la petición y PDF de oferta.
 
 ## Puesta en marcha
@@ -37,6 +41,9 @@ registro de auditoría, política de retención RGPD, portal de cliente, estados
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt
+# Crear los usuarios (pide la contraseña sin mostrarla; solo se guarda su hash)
+python -m app.usuarios crear unioncad@unioncad.es
+python -m app.usuarios crear dramajo@unioncad.es
 uvicorn app.main:app --reload
 # http://localhost:8000
 pytest -q

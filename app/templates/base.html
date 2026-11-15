@@ -20,6 +20,12 @@
       <a href="/materiales" {% if p.startswith('/materiales') %}aria-current="page"{% endif %}>Materiales</a>
       <a href="/parametros" {% if p.startswith('/parametros') %}aria-current="page"{% endif %}>Parámetros</a>
     </nav>
+    {% if request.state.user is defined and request.state.user %}
+    <form method="post" action="/logout" class="userbox">
+      <span class="muted small" title="{{ request.state.user.email }}">{{ request.state.user.email }}</span>
+      <button class="btn ghost small-btn" type="submit">Salir</button>
+    </form>
+    {% endif %}
   </header>
   <main class="container">
     {% block content %}{% endblock %}

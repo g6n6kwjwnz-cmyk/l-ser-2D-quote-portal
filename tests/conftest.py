@@ -36,8 +36,15 @@ def client(tmp_path, monkeypatch):
             s.close()
     main.app.dependency_overrides[dbmod.get_db] = _get_db
     with TestClient(main.app) as c:
+        from app.auth import set_user
+        with Session() as db:
+            set_user(db, TEST_USER, TEST_PASSWORD)
+        r = c.post("/login", data={"email": TEST_USER, "password": TEST_PASSWORD}, follow_redirects=False)
+        assert r.status_code == 303
         yield c
     main.app.dependency_overrides.clear()
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
+TEST_USER = "test@example.com"
+TEST_PASSWORD = "Prueba-Segura-123"

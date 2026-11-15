@@ -108,3 +108,13 @@ input[type=checkbox] { width: auto; accent-color: var(--primary); }
 @media (max-width: 700px) { .stats.compact { grid-template-columns: repeat(2, minmax(0, 1fr)); } .topbar { gap: .6rem; padding: .6rem 16px; } }
 .quote-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; }
 .quote-grid table th { font-weight: 500; } .quote-grid table th .small { display: block; }
+.userbox { margin-left: auto; display: flex; align-items: center; gap: .6rem; min-width: 0; }
+.userbox span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+.small-btn { padding: .35rem .7rem; font-size: .85rem; }
+.login-page { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+.login-box { width: 100%; max-width: 380px; }
+.login-brand { justify-content: center; margin-bottom: 1rem; font-size: 1.15rem; }
+.login-box .card { display: flex; flex-direction: column; gap: 1rem; padding: 1.6rem; }
+.login-box h1 { font-size: 1.3rem; margin: 0; }
+.btn.block { width: 100%; }
+code { font-size: .85em; background: var(--surface-2); padding: .1rem .3rem; border-radius: 4px; overflow-wrap: anywhere; }
