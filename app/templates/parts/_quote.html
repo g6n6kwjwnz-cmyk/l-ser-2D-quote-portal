@@ -1,0 +1,50 @@
+{% if error %}
+<div class="alert error" role="alert">{{ error }}</div>
+{% else %}
+<div class="quote">
+  <div class="quote-head">
+    <div>
+      <p class="muted small">{{ machine.name }} · {{ material.code }} {{ thickness|num(1) }} mm · {{ GASES[gas] }} · {{ param.cut_speed_m_min|num(2) }} m/min{% if q.param_interpolated %} (interpolado){% endif %}</p>
+      <p class="price"><span>{{ q.unit_price|num(2) }} €</span> <small>/ ud.</small></p>
+      <p class="muted">Total {{ q.quantity }} uds.: <strong>{{ q.total_price|eur }}</strong>{% if q.min_order_applied %} <span class="badge warn">mínimo de pedido</span>{% endif %}</p>
+    </div>
+    <div class="stats compact">
+      <div class="stat"><span>Tiempo / pieza</span><strong>{{ q.part_time_s|dur }}</strong></div>
+      <div class="stat"><span>Tiempo pedido</span><strong>{{ (q.order_time_h*3600)|dur }}</strong></div>
+      <div class="stat"><span>Peso neto / pieza</span><strong>{{ q.net_weight_kg|num(3) }} <small>kg</small></strong></div>
+      <div class="stat"><span>Piezas / chapa</span><strong>{{ q.parts_per_sheet }}</strong></div>
+    </div>
+  </div>
+
+  {% for w in q.warnings %}<div class="alert warn">{{ w }}</div>{% endfor %}
+
+  <div class="quote-grid">
+    <div class="table-wrap"><table class="compact">
+      <caption>Desglose del pedido</caption>
+      <tbody>
+        <tr><th>Máquina <span class="muted small">{{ (q.order_time_h)|num(3) }} h × {{ machine.hourly_rate_eur|eur }}/h</span></th><td class="num">{{ q.machine_cost|eur }}</td></tr>
+        <tr><th>Gas <span class="muted small">{{ param.gas_flow_m3_h|num(1) }} m³/h × {{ s.gas_price(gas)|num(2) }} €/m³</span></th><td class="num">{{ q.gas_cost|eur }}</td></tr>
+        <tr><th>Energía <span class="muted small">{{ machine.power_consumption_kw|num(0) }} kW × {{ s.electricity_eur_kwh|num(3) }} €/kWh</span></th><td class="num">{{ q.energy_cost|eur }}</td></tr>
+        <tr><th>Material <span class="muted small">{{ q.charged_weight_kg|num(3) }} kg/ud. × {{ material.price_eur_kg|num(2) }} €/kg</span></th><td class="num">{{ q.material_cost|eur }}</td></tr>
+        <tr><th>Preparación</th><td class="num">{{ q.setup_cost|eur }}</td></tr>
+        <tr class="sub"><th>Coste total</th><td class="num">{{ q.total_cost|eur }}</td></tr>
+        <tr><th>Margen {{ q.margin_pct|num(1) }} %</th><td class="num">{{ (q.total_cost * q.margin_pct / 100)|eur }}</td></tr>
+        {% if q.discount_pct %}<tr><th>Descuento por cantidad {{ q.discount_pct|num(1) }} %</th><td class="num">−{{ q.discount_eur|eur }}</td></tr>{% endif %}
+        <tr class="total"><th>Precio</th><td class="num">{{ q.total_price|eur }}</td></tr>
+      </tbody>
+    </table></div>
+    <div class="table-wrap"><table class="compact">
+      <caption>Tiempos y aprovechamiento</caption>
+      <tbody>
+        <tr><th>Corte / pieza</th><td class="num">{{ q.cut_time_s|dur }}</td></tr>
+        <tr><th>Perforado / pieza</th><td class="num">{{ q.pierce_time_s|dur }}</td></tr>
+        <tr><th>Vacío y cabezal / pieza</th><td class="num">{{ q.rapid_time_s|dur }}</td></tr>
+        <tr><th>Chapas necesarias</th><td class="num">{{ q.sheets_needed }} ({{ s.sheet_x_mm|num(0) }} × {{ s.sheet_y_mm|num(0) }})</td></tr>
+        <tr><th>Aprovechamiento de chapa (anidado)</th><td class="num">{{ q.sheet_utilization_pct|num(1) }} %</td></tr>
+        <tr><th>Aprovechamiento de envolvente</th><td class="num">{{ q.envelope_utilization_pct|num(1) }} %</td></tr>
+        <tr><th>Peso repercutido / pieza</th><td class="num">{{ q.charged_weight_kg|num(3) }} kg</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</div>
+{% endif %}

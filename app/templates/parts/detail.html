@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}{{ part.filename }} · Piezas{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="/piezas">Piezas</a> /</p>
+<div class="page-head">
+  <div><h1>{{ part.filename }}</h1><p class="muted small">SHA-256 {{ part.sha256[:16] }}… · {{ (part.size_bytes/1024)|num(1) }} KB · unidades: {{ g.units_source }}</p></div>
+  <form method="post" action="/piezas/{{ part.id }}/eliminar"><button class="btn ghost">Eliminar pieza</button></form>
+</div>
+
+{% for w in g.warnings %}<div class="alert warn">{{ w }}</div>{% endfor %}
+
+<div class="part-layout">
+  <section class="card preview-card">
+    <div class="preview">{{ part.svg|safe }}</div>
+    <ul class="legend">
+      <li><span class="sw outer"></span>Contorno exterior</li>
+      <li><span class="sw inner"></span>Interior</li>
+      {% if g.open_contours %}<li><span class="sw open"></span>Abierto</li>{% endif %}
+      <li><span class="sw dot"></span>Perforación</li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2>Geometría</h2>
+    <div class="stats">
+      <div class="stat"><span>Longitud de corte</span><strong>{{ g.cut_length_mm|num(1) }} <small>mm</small></strong></div>
+      <div class="stat"><span>Perforaciones</span><strong>{{ g.pierce_count }}</strong></div>
+      <div class="stat"><span>Área neta</span><strong>{{ (g.net_area_mm2/100)|num(2) }} <small>cm²</small></strong></div>
+      <div class="stat"><span>Envolvente</span><strong>{{ g.bbox_width_mm|num(1) }} × {{ g.bbox_height_mm|num(1) }} <small>mm</small></strong></div>
+    </div>
+    <dl class="kv">
+      <dt>Envolvente mínima (rotada)</dt><dd>{{ g.min_rect_width_mm|num(1) }} × {{ g.min_rect_height_mm|num(1) }} mm</dd>
+      <dt>Contornos</dt><dd>{{ g.contour_count }} ({{ g.part_count }} pieza{{ 's' if g.part_count != 1 }})</dd>
+      <dt>Interior más pequeño</dt><dd>{{ g.smallest_inner_feature_mm|num(1) }}{% if g.smallest_inner_feature_mm %} mm{% endif %}</dd>
+      <dt>Recorrido en vacío estimado</dt><dd>{{ g.rapid_length_mm|num(0) }} mm</dd>
+      {% if g.duplicates_removed %}<dt>Duplicados eliminados</dt><dd>{{ g.duplicates_removed }}</dd>{% endif %}
+    </dl>
+  </section>
+</div>
+
+<section class="card">
+  <h2>Calcular coste</h2>
+  {% if not has_machines %}
+    <div class="empty">No hay máquinas activas. <a href="/maquinas/nueva">Da de alta una máquina</a>.</div>
+  {% else %}
+  <form id="quote-form" class="quote-form" method="post" action="/piezas/{{ part.id }}/calcular"
+        data-options='{{ options_json }}' data-materials='{{ materials_json }}'>
+    <div class="field"><label for="machine_id">Máquina</label><select id="machine_id" name="machine_id"></select></div>
+    <div class="field"><label for="material_id">Material</label>
+      <select id="material_id" name="material_id">
+        {% for m in materials %}<option value="{{ m.id }}">{{ m.code }} · {{ m.name }}</option>{% endfor %}
+      </select></div>
+    <div class="field"><label for="gas">Gas</label><select id="gas" name="gas"></select></div>
+    <div class="field"><label for="thickness_mm">Espesor <span class="unit">mm</span></label>
+      <input id="thickness_mm" name="thickness_mm" type="number" step="0.1" min="0.5" max="12" value="3" list="thickness-list" required>
+      <datalist id="thickness-list"></datalist>
+      <p class="help" data-thickness-help></p></div>
+    <div class="field"><label for="quantity">Cantidad</label><input id="quantity" name="quantity" type="number" min="1" max="100000" step="1" value="10" required></div>
+    <div class="field submit"><button class="btn primary" type="submit">Calcular</button></div>
+  </form>
+  <div id="quote-result" aria-live="polite"></div>
+  {% endif %}
+</section>
+{% endblock %}

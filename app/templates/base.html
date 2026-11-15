@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ app_name }}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v7M12 15v7M5 12h3M16 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>
+      <span>Láser 2D <small>Ofertas</small></span>
+    </a>
+    <nav>
+      {% set p = request.url.path %}
+      <a href="/piezas" {% if p.startswith('/piezas') %}aria-current="page"{% endif %}>Piezas</a>
+      <a href="/maquinas" {% if p.startswith('/maquinas') %}aria-current="page"{% endif %}>Máquinas</a>
+      <a href="/materiales" {% if p.startswith('/materiales') %}aria-current="page"{% endif %}>Materiales</a>
+      <a href="/parametros" {% if p.startswith('/parametros') %}aria-current="page"{% endif %}>Parámetros</a>
+    </nav>
+  </header>
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="footer">Fase 1 · Motor geométrico y de costes · Los planos originales no se almacenan</footer>
+</body>
+</html>

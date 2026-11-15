@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Piezas · {{ app_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Piezas</h1><p class="muted">Sube un plano 2D para analizar su geometría y calcular el coste de corte.</p></div>
+</div>
+{% if error %}<div class="alert error" role="alert">{{ error }}</div>{% endif %}
+<form class="card upload" method="post" enctype="multipart/form-data" data-upload>
+  <label class="dropzone" for="file">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <strong>Arrastra aquí el plano o haz clic para elegirlo</strong>
+    <span class="muted small">DXF (DWG si el servidor tiene conversor) · máx. {{ max_mb }} MB · una pieza por plano recomendado</span>
+    <span class="filename" data-filename></span>
+    <input id="file" type="file" name="file" accept=".dxf,.dwg" required>
+  </label>
+  <button class="btn primary" type="submit">Analizar plano</button>
+</form>
+
+<h2>Piezas analizadas</h2>
+{% if not parts %}
+  <div class="empty">Todavía no hay piezas.</div>
+{% else %}
+<div class="table-wrap"><table>
+  <thead><tr><th>Plano</th><th class="num">Envolvente</th><th class="num">Long. corte</th><th class="num">Perforaciones</th><th class="num">Área neta</th><th>Fecha</th></tr></thead>
+  <tbody>
+  {% for p in parts %}{% set g = p.metrics %}
+    <tr>
+      <td><a href="/piezas/{{ p.id }}"><strong>{{ p.filename }}</strong></a>{% if g.warnings %} <span class="badge warn" title="{{ g.warnings|join(' · ') }}">{{ g.warnings|length }} aviso{{ 's' if g.warnings|length > 1 }}</span>{% endif %}</td>
+      <td class="num">{{ g.bbox_width_mm|num(1) }} × {{ g.bbox_height_mm|num(1) }} mm</td>
+      <td class="num">{{ g.cut_length_mm|num(0) }} mm</td>
+      <td class="num">{{ g.pierce_count }}</td>
+      <td class="num">{{ (g.net_area_mm2 / 100)|num(1) }} cm²</td>
+      <td>{{ p.created_at.strftime('%d/%m/%Y %H:%M') }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% endif %}
+{% endblock %}

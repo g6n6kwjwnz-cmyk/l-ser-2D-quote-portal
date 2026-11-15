@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}{{ m.name }} · Máquinas{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="/maquinas">Máquinas</a> /</p>
+<div class="page-head">
+  <div>
+    <h1>{{ m.name }} {% if m.active %}<span class="badge ok">Activa</span>{% else %}<span class="badge off">De baja</span>{% endif %}</h1>
+    <p class="muted">{{ m.manufacturer }} {{ m.model }} · actualizada {{ m.updated_at.strftime('%d/%m/%Y %H:%M') }}</p>
+  </div>
+  <div class="actions">
+    <a class="btn primary" href="/maquinas/{{ m.id }}/editar">Editar</a>
+    <a class="btn" href="/maquinas/nueva?desde={{ m.id }}">Duplicar</a>
+    <form method="post" action="/maquinas/{{ m.id }}/estado"><button class="btn">{% if m.active %}Dar de baja{% else %}Reactivar{% endif %}</button></form>
+  </div>
+</div>
+
+<div class="grid-cards">
+{% for title, fields in sections if title != 'Estado' %}
+  <section class="card">
+    <h2>{{ title }}</h2>
+    <dl class="kv">
+    {% for f in fields %}
+      {% set v = m[f.name] %}
+      <dt>{{ f.label }}</dt>
+      <dd>{% if f.kind == 'select' %}{{ f.options[v] }}{% elif f.kind in ('float','int') %}{{ v|num(2 if ('€' in f.unit or v < 10) else 0 if v >= 1000 else 1) }} {{ f.unit }}{% else %}{{ v or '—' }}{% endif %}</dd>
+    {% endfor %}
+    </dl>
+  </section>
+{% endfor %}
+</div>
+{% if m.notes %}<section class="card"><h2>Notas</h2><p>{{ m.notes }}</p></section>{% endif %}
+
+<section class="card">
+  <h2>Tabla de parámetros de corte</h2>
+  <p class="muted small">Entre espesores tabulados el motor interpola linealmente. Fuera del rango no se oferta.</p>
+  {% for (fam, gas), rows in grouped.items() %}
+    <h3>{{ FAMILIES[fam] }} · {{ GASES[gas] }}</h3>
+    <div class="table-wrap"><table class="compact">
+      <thead><tr><th class="num">Espesor</th><th class="num">Velocidad</th><th class="num">Perforación</th><th class="num">Caudal gas</th><th class="num">Kerf</th></tr></thead>
+      <tbody>{% for p in rows %}<tr><td class="num">{{ p.thickness_mm|num(1) }} mm</td><td class="num">{{ p.cut_speed_m_min|num(2) }} m/min</td><td class="num">{{ p.pierce_time_s|num(1) }} s</td><td class="num">{{ p.gas_flow_m3_h|num(1) }} m³/h</td><td class="num">{{ p.kerf_mm|num(2) }} mm</td></tr>{% endfor %}</tbody>
+    </table></div>
+  {% else %}<p class="empty">Sin parámetros.</p>{% endfor %}
+</section>
+
+<details class="card danger-zone">
+  <summary>Eliminar máquina definitivamente</summary>
+  <p>Esta acción no se puede deshacer y borra su tabla de corte. Si solo quieres dejar de usarla, usa «Dar de baja».</p>
+  <form method="post" action="/maquinas/{{ m.id }}/eliminar" class="inline-form">
+    <label for="confirm_name">Escribe <strong>{{ m.name }}</strong> para confirmar</label>
+    <input id="confirm_name" name="confirm_name" required autocomplete="off">
+    <button class="btn danger">Eliminar</button>
+  </form>
+</details>
+{% endblock %}

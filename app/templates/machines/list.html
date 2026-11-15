@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Máquinas · {{ app_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Máquinas</h1><p class="muted">Parque de máquinas y sus tablas de corte. Solo las activas se usan para ofertar.</p></div>
+  <a class="btn primary" href="/maquinas/nueva">+ Nueva máquina</a>
+</div>
+{% if not machines %}
+  <div class="empty">No hay máquinas. <a href="/maquinas/nueva">Da de alta la primera</a>.</div>
+{% else %}
+<div class="table-wrap"><table>
+  <thead><tr><th>Nombre</th><th>Fuente</th><th class="num">Potencia</th><th class="num">Mesa</th><th class="num">Esp. máx.</th><th class="num">€/h</th><th class="num">Parámetros</th><th>Estado</th></tr></thead>
+  <tbody>
+  {% for m in machines %}
+    <tr class="{% if not m.active %}inactive{% endif %}">
+      <td><a href="/maquinas/{{ m.id }}"><strong>{{ m.name }}</strong></a><br><span class="muted small">{{ m.manufacturer }} {{ m.model }}</span></td>
+      <td>{{ LASER_TYPES[m.laser_type] }}</td>
+      <td class="num">{{ m.laser_power_kw|num(1) }} kW</td>
+      <td class="num">{{ m.table_x_mm|num(0) }} × {{ m.table_y_mm|num(0) }}</td>
+      <td class="num">{{ m.max_thickness_mm|num(1) }} mm</td>
+      <td class="num">{{ m.hourly_rate_eur|eur }}</td>
+      <td class="num">{{ m.cut_params|length }}</td>
+      <td>{% if m.active %}<span class="badge ok">Activa</span>{% else %}<span class="badge off">De baja</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% endif %}
+{% endblock %}

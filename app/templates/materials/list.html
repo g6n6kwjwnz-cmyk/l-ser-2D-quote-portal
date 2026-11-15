@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Materiales · {{ app_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Materiales</h1><p class="muted">Densidad y precio por kg. La familia enlaza con la tabla de corte de cada máquina.</p></div>
+  <a class="btn primary" href="/materiales/nuevo">+ Nuevo material</a>
+</div>
+<div class="table-wrap"><table>
+  <thead><tr><th>Código</th><th>Descripción</th><th>Familia</th><th class="num">Densidad</th><th class="num">Precio</th><th>Estado</th></tr></thead>
+  <tbody>{% for m in items %}
+    <tr class="{% if not m.active %}inactive{% endif %}"><td><a href="/materiales/{{ m.id }}"><strong>{{ m.code }}</strong></a></td><td>{{ m.name }}</td><td>{{ FAMILIES[m.family] }}</td>
+    <td class="num">{{ m.density_kg_dm3|num(2) }} kg/dm³</td><td class="num">{{ m.price_eur_kg|num(2) }} €/kg</td>
+    <td>{% if m.active %}<span class="badge ok">Activo</span>{% else %}<span class="badge off">Inactivo</span>{% endif %}</td></tr>
+  {% endfor %}</tbody>
+</table></div>
+{% endblock %}

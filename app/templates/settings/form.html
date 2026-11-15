@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% from "_macros.html" import field %}
+{% block title %}Parámetros económicos · {{ app_name }}{% endblock %}
+{% block content %}
+<h1>Parámetros económicos</h1>
+<p class="muted">Valores globales que usa el motor de costes para todas las máquinas.</p>
+{% if saved %}<div class="alert ok">Parámetros guardados.</div>{% endif %}
+{% if errors %}<div class="alert error">Revisa los campos marcados.</div>{% endif %}
+<form method="post" novalidate>
+  {% for title, fields in sections %}
+  <fieldset class="card"><legend>{{ title }}</legend><div class="fields">{% for f in fields %}{{ field(f, values, errors) }}{% endfor %}</div></fieldset>
+  {% endfor %}
+  <fieldset class="card"><legend>Descuentos por cantidad</legend>
+    <div class="field wide {% if errors.quantity_discounts %}has-error{% endif %}">
+      <label for="quantity_discounts">Tramos <span class="unit">cantidad mínima: % descuento</span></label>
+      <textarea id="quantity_discounts" name="quantity_discounts" rows="5">{{ values.quantity_discounts }}</textarea>
+      {% if errors.quantity_discounts %}<p class="error-text">{{ errors.quantity_discounts }}</p>{% else %}<p class="help">Uno por línea, p. ej. «50: 7». Se aplica sobre la parte variable del precio (no a la preparación).</p>{% endif %}
+    </div>
+  </fieldset>
+  <div class="form-actions"><button class="btn primary">Guardar parámetros</button></div>
+</form>
+{% endblock %}

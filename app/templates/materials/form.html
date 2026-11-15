@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% from "_macros.html" import field %}
+{% block title %}{{ item.code if item else 'Nuevo material' }}{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="/materiales">Materiales</a> /</p>
+<h1>{{ 'Editar ' ~ item.code if item else 'Nuevo material' }}</h1>
+{% if errors %}<div class="alert error">Revisa los campos marcados.</div>{% endif %}
+<form method="post" action="{{ '/materiales/' ~ item.id if item else '/materiales/nuevo' }}" novalidate>
+  <fieldset class="card"><div class="fields">{% for f in fields %}{{ field(f, values, errors) }}{% endfor %}</div></fieldset>
+  <div class="form-actions"><button class="btn primary">Guardar</button><a class="btn ghost" href="/materiales">Cancelar</a></div>
+</form>
+{% if item %}
+<form method="post" action="/materiales/{{ item.id }}/eliminar" class="form-actions"><button class="btn danger">Eliminar material</button></form>
+{% endif %}
+{% endblock %}

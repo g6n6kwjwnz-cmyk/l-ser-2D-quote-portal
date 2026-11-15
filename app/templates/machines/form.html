@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% from "_macros.html" import field %}
+{% block title %}{{ 'Editar ' ~ machine.name if machine else 'Nueva máquina' }}{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="/maquinas">Máquinas</a> /{% if machine %} <a href="/maquinas/{{ machine.id }}">{{ machine.name }}</a> /{% endif %}</p>
+<h1>{{ 'Editar máquina' if machine else 'Nueva máquina' }}</h1>
+{% if errors or row_errors or global_errors %}
+  <div class="alert error">Revisa los campos marcados.{% for e in global_errors %} {{ e }}{% endfor %}</div>
+{% endif %}
+<form method="post" class="machine-form" novalidate>
+  {% for title, fields in sections %}
+  <fieldset class="card">
+    <legend>{{ title }}</legend>
+    <div class="fields">{% for f in fields %}{{ field(f, values, errors) }}{% endfor %}</div>
+  </fieldset>
+  {% endfor %}
+
+  <fieldset class="card">
+    <legend>Parámetros de corte</legend>
+    <p class="help">Una fila por combinación material + gas + espesor (hasta 12 mm). Marca «Quitar» para borrar una fila.</p>
+    <div class="table-wrap"><table class="params-table" id="params-table">
+      <thead><tr>{% for f in param_fields %}<th>{{ f.label }}{% if f.unit %} <span class="unit">{{ f.unit }}</span>{% endif %}</th>{% endfor %}<th>Quitar</th></tr></thead>
+      <tbody>
+      {% for row in params %}{% set i = loop.index0 %}{% set rerr = row_errors.get(i, {}) %}
+        <tr class="{% if rerr %}has-error{% endif %}">
+        {% for f in param_fields %}
+          <td>{% if f.kind == 'select' %}<select name="p-{{ i }}-{{ f.name }}" aria-label="{{ f.label }}">{% for k, l in f.options.items() %}<option value="{{ k }}" {% if row.get(f.name) == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+          {% else %}<input type="number" step="any" min="{{ f.min }}" max="{{ f.max }}" name="p-{{ i }}-{{ f.name }}" value="{{ '' if row.get(f.name) is none else row.get(f.name) }}" aria-label="{{ f.label }}">{% endif %}
+          {% if rerr.get(f.name) %}<span class="error-text">{{ rerr[f.name] }}</span>{% endif %}</td>
+        {% endfor %}
+          <td class="center"><input type="checkbox" name="p-{{ i }}-delete" aria-label="Quitar fila"></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    <template id="param-row-template">
+      <tr>{% for f in param_fields %}<td>{% if f.kind == 'select' %}<select name="p-__i__-{{ f.name }}" aria-label="{{ f.label }}">{% for k, l in f.options.items() %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select>{% else %}<input type="number" step="any" min="{{ f.min }}" max="{{ f.max }}" name="p-__i__-{{ f.name }}" aria-label="{{ f.label }}">{% endif %}</td>{% endfor %}<td class="center"><input type="checkbox" name="p-__i__-delete" aria-label="Quitar fila"></td></tr>
+    </template>
+    <button type="button" class="btn" data-add-row="params-table">+ Añadir fila</button>
+  </fieldset>
+
+  <div class="form-actions">
+    <button class="btn primary" type="submit">Guardar máquina</button>
+    <a class="btn ghost" href="{{ '/maquinas/' ~ machine.id if machine else '/maquinas' }}">Cancelar</a>
+  </div>
+</form>
+{% endblock %}

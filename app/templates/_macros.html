@@ -1,0 +1,21 @@
+{% macro field(f, values, errors, prefix='') %}
+  {% set name = prefix ~ f.name %}
+  {% set v = values.get(f.name) %}
+  <div class="field {% if f.kind == 'text' %}wide{% endif %} {% if errors.get(f.name) %}has-error{% endif %}">
+    {% if f.kind == 'bool' %}
+      <label class="check"><input type="checkbox" name="{{ name }}" {% if v %}checked{% endif %}> {{ f.label }}</label>
+    {% else %}
+      <label for="{{ name }}">{{ f.label }}{% if f.unit %} <span class="unit">{{ f.unit }}</span>{% endif %}</label>
+      {% if f.kind == 'select' %}
+        <select id="{{ name }}" name="{{ name }}">
+          {% for k, label in f.options.items() %}<option value="{{ k }}" {% if v == k %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      {% elif f.kind == 'text' %}
+        <textarea id="{{ name }}" name="{{ name }}" rows="3">{{ v or '' }}</textarea>
+      {% else %}
+        <input id="{{ name }}" name="{{ name }}" {% if f.kind in ('float','int') %}type="number" step="{{ f.step }}" inputmode="decimal"{% if f.min is not none %} min="{{ f.min }}"{% endif %}{% if f.max is not none %} max="{{ f.max }}"{% endif %}{% else %}type="text" maxlength="120"{% endif %} value="{{ '' if v is none else v }}" {% if f.required %}required{% endif %}>
+      {% endif %}
+    {% endif %}
+    {% if errors.get(f.name) %}<p class="error-text">{{ errors[f.name] }}</p>{% elif f.help %}<p class="help">{{ f.help }}</p>{% endif %}
+  </div>
+{% endmacro %}
