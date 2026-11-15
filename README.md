@@ -27,7 +27,9 @@ y calcular el coste de fabricación.
 - **Acceso con usuario y contraseña** en todas las páginas. Contraseñas en hash scrypt con sal (nunca en claro,
   ni en el repositorio), sesiones en servidor con cookie `HttpOnly`/`SameSite`, caducidad a las 12 h,
   bloqueo de 15 min tras 5 intentos fallidos y mismo mensaje para usuario inexistente o clave errónea.
-  Usuarios gestionados con `python -m app.usuarios crear|listar|desactivar`. En producción con HTTPS: `PORTAL_COOKIE_SECURE=true`.
+  Usuarios gestionados con `python -m app.usuarios crear|listar|desactivar`.
+  La contraseña creada por script es provisional: en el primer acceso el portal obliga a cambiarla
+  (con indicador de fortaleza y botón «Sugerir contraseña segura»). También se puede cambiar desde el menú. En producción con HTTPS: `PORTAL_COOKIE_SECURE=true`.
 - El plano original **no se guarda**: solo métricas, huella SHA-256 y la vista previa SVG generada en servidor.
 - Validación de subida por extensión, firma del contenido y tamaño máximo.
 - Cabeceras CSP, `X-Frame-Options`, `nosniff`, `Referrer-Policy`; rechazo de POST de otro origen (CSRF básico).

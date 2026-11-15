@@ -27,6 +27,8 @@ def main(argv=None) -> int:
     c = sub.add_parser("crear", help="Crear usuario o cambiar su contraseña")
     c.add_argument("email")
     c.add_argument("--nombre", default="")
+    c.add_argument("--definitiva", action="store_true",
+                   help="No obligar a cambiar la contraseña en el primer acceso")
     sub.add_parser("listar")
     d = sub.add_parser("desactivar")
     d.add_argument("email")
@@ -44,8 +46,9 @@ def main(argv=None) -> int:
             if err := validate_new_password(pwd):
                 print(err, file=sys.stderr)
                 return 1
-            u = set_user(db, args.email, pwd, args.nombre)
-            print(f"Usuario {u.email} guardado.")
+            u = set_user(db, args.email, pwd, args.nombre, must_change=not args.definitiva)
+            extra = "" if args.definitiva else " Deberá cambiar la contraseña en su primer acceso."
+            print(f"Usuario {u.email} guardado.{extra}")
         elif args.cmd == "listar":
             for u in db.scalars(select(User).order_by(User.email)):
                 last = u.last_login_at.strftime("%d/%m/%Y %H:%M") if u.last_login_at else "nunca"

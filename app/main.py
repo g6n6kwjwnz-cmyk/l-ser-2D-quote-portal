@@ -5,6 +5,7 @@ from urllib.parse import quote, urlparse
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import inspect, text
 
 from .auth import COOKIE_NAME, user_from_token
 from .db import Base, SessionLocal, engine
@@ -12,9 +13,18 @@ from .routers import auth, catalog, machines, parts
 from .seed import seed
 
 
+def _add_missing_columns() -> None:
+    """Migración mínima para bases de datos creadas con versiones anteriores."""
+    cols = {c["name"] for c in inspect(engine).get_columns("users")}
+    if "must_change_password" not in cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT 1"))
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(engine)
+    _add_missing_columns()
     with SessionLocal() as db:
         seed(db)
     yield
@@ -42,6 +52,11 @@ async def require_login(request: Request, call_next):
                 return RedirectResponse(f"/login?next={quote(path)}", status_code=303)
             return PlainTextResponse("Sesión caducada. Vuelve a iniciar sesión.", status_code=401)
         request.state.user = user
+        # contraseña provisional: solo se permite cambiarla o salir
+        if user.must_change_password and path not in ("/cuenta/contrasena", "/logout"):
+            if request.method == "GET":
+                return RedirectResponse("/cuenta/contrasena", status_code=303)
+            return PlainTextResponse("Debes cambiar tu contraseña antes de continuar.", status_code=403)
     return await call_next(request)
 
 

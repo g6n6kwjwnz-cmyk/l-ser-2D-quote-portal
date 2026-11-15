@@ -38,7 +38,7 @@ def client(tmp_path, monkeypatch):
     with TestClient(main.app) as c:
         from app.auth import set_user
         with Session() as db:
-            set_user(db, TEST_USER, TEST_PASSWORD)
+            set_user(db, TEST_USER, TEST_PASSWORD, must_change=False)
         r = c.post("/login", data={"email": TEST_USER, "password": TEST_PASSWORD}, follow_redirects=False)
         assert r.status_code == 303
         yield c

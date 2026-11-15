@@ -6,7 +6,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..auth import COOKIE_NAME, authenticate, create_session, destroy_session
+from ..auth import COOKIE_NAME, MIN_PASSWORD_LEN, authenticate, change_password, create_session, destroy_session
 from ..config import settings
 from ..db import get_db
 from ..models import User
@@ -37,6 +37,8 @@ async def login(request: Request, db: Session = Depends(get_db)):
         return templates.TemplateResponse(request, "login.html", {
             "next": nxt, "error": error, "email": email.strip()[:254], "no_users": False}, status_code=401)
     token = create_session(db, user, request.headers.get("user-agent", ""))
+    if user.must_change_password:
+        nxt = "/cuenta/contrasena"
     resp = RedirectResponse(nxt, status_code=303)
     resp.set_cookie(COOKIE_NAME, token, max_age=settings.session_hours * 3600, httponly=True,
                     secure=settings.cookie_secure, samesite="lax", path="/")
@@ -49,3 +51,25 @@ def logout(request: Request, db: Session = Depends(get_db)):
     resp = RedirectResponse("/login", status_code=303)
     resp.delete_cookie(COOKIE_NAME, path="/")
     return resp
+
+
+def _pwd_page(request: Request, **ctx):
+    status = ctx.pop("status", 200)
+    return templates.TemplateResponse(request, "password.html", {"min_len": MIN_PASSWORD_LEN, **ctx},
+                                      status_code=status)
+
+
+@router.get("/cuenta/contrasena")
+def password_form(request: Request, hecho: int = 0):
+    return _pwd_page(request, done=hecho, forced=request.state.user.must_change_password)
+
+
+@router.post("/cuenta/contrasena")
+async def password_change(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    user = request.state.user
+    error = change_password(db, user, str(form.get("current", "")), str(form.get("new", "")),
+                            str(form.get("repeat", "")), request.cookies.get(COOKIE_NAME))
+    if error:
+        return _pwd_page(request, error=error, forced=user.must_change_password, status=422)
+    return RedirectResponse("/cuenta/contrasena?hecho=1", status_code=303)

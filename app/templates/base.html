@@ -23,6 +23,7 @@
     {% if request.state.user is defined and request.state.user %}
     <form method="post" action="/logout" class="userbox">
       <span class="muted small" title="{{ request.state.user.email }}">{{ request.state.user.email }}</span>
+      <a class="btn ghost small-btn" href="/cuenta/contrasena">Cambiar contraseña</a>
       <button class="btn ghost small-btn" type="submit">Salir</button>
     </form>
     {% endif %}

@@ -66,3 +66,35 @@ def test_cli_creates_user(tmp_path, monkeypatch):
     assert usuarios.main(["crear", "a@b.es"]) == 1
     monkeypatch.setenv("PORTAL_NEW_PASSWORD", "Fuerte-Clave-2027")
     assert usuarios.main(["crear", "a@b.es"]) == 0
+
+
+def test_first_login_forces_password_change(client):
+    from app import main
+    from app.auth import set_user
+    with main.SessionLocal() as db:
+        set_user(db, "nuevo@example.com", "Provisional-2027")
+    client.post("/logout")
+    r = client.post("/login", data={"email": "nuevo@example.com", "password": "Provisional-2027", "next": "/maquinas"},
+                    follow_redirects=False)
+    assert r.headers["location"] == "/cuenta/contrasena"
+    assert client.get("/maquinas", follow_redirects=False).headers["location"] == "/cuenta/contrasena"
+    assert client.post("/maquinas/1/estado").status_code == 403
+    page = client.get("/cuenta/contrasena")
+    assert "contraseña provisional" in page.text
+    bad = client.post("/cuenta/contrasena", data={"current": "Provisional-2027", "new": "Provisional-2027",
+                                                   "repeat": "Provisional-2027"})
+    assert bad.status_code == 422 and "distinta" in bad.text
+    bad = client.post("/cuenta/contrasena", data={"current": "mala", "new": "Nueva-Clave-2028", "repeat": "Nueva-Clave-2028"})
+    assert bad.status_code == 422
+    ok = client.post("/cuenta/contrasena", data={"current": "Provisional-2027", "new": "Nueva-Clave-2028",
+                                                  "repeat": "Nueva-Clave-2028"}, follow_redirects=False)
+    assert ok.status_code == 303
+    assert client.get("/maquinas").status_code == 200          # sigue con sesión y ya puede navegar
+    client.post("/logout")
+    assert client.post("/login", data={"email": "nuevo@example.com", "password": "Provisional-2027"}).status_code == 401
+    assert client.post("/login", data={"email": "nuevo@example.com", "password": "Nueva-Clave-2028"},
+                       follow_redirects=False).headers["location"] == "/"
+
+
+def test_menu_has_change_password(client):
+    assert "/cuenta/contrasena" in client.get("/maquinas").text

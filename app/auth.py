@@ -129,8 +129,34 @@ def destroy_session(db: Session, token: str | None) -> None:
         db.commit()
 
 
-def set_user(db: Session, email: str, password: str, name: str = "") -> User:
-    """Crea o actualiza un usuario (usado por el script de administración)."""
+def change_password(db: Session, user: User, current: str, new: str, repeat: str,
+                    keep_token: str | None) -> str | None:
+    """Cambio de contraseña por el propio usuario. Devuelve un mensaje de error o None si se cambió."""
+    user = db.get(User, user.id)
+    if not verify_password(current, user.password_hash):
+        return "La contraseña actual no es correcta."
+    if new != repeat:
+        return "Las contraseñas nuevas no coinciden."
+    if new == current:
+        return "La nueva contraseña debe ser distinta de la actual."
+    if err := validate_new_password(new):
+        return err
+    if user.email.split("@")[0].lower() in new.lower():
+        return "La contraseña no debe contener tu nombre de usuario."
+    user.password_hash = hash_password(new)
+    user.must_change_password = False
+    keep = _token_hash(keep_token) if keep_token else None
+    for s in db.scalars(select(UserSession).where(UserSession.user_id == user.id)):
+        if s.token_hash != keep:  # cierra las demás sesiones abiertas
+            db.delete(s)
+    db.commit()
+    return None
+
+
+def set_user(db: Session, email: str, password: str, name: str = "", must_change: bool = True) -> User:
+    """Crea o actualiza un usuario (usado por el script de administración).
+
+    Por defecto la contraseña es provisional: el usuario deberá cambiarla en su primer acceso."""
     email = email.strip().lower()
     user = db.scalar(select(User).where(User.email == email))
     if user is None:
@@ -139,6 +165,7 @@ def set_user(db: Session, email: str, password: str, name: str = "") -> User:
     elif name:
         user.name = name
     user.password_hash = hash_password(password)
+    user.must_change_password = must_change
     user.failed_logins = 0
     user.locked_until = None
     user.active = True

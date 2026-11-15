@@ -118,3 +118,11 @@ input[type=checkbox] { width: auto; accent-color: var(--primary); }
 .login-box h1 { font-size: 1.3rem; margin: 0; }
 .btn.block { width: 100%; }
 code { font-size: .85em; background: var(--surface-2); padding: .1rem .3rem; border-radius: 4px; overflow-wrap: anywhere; }
+.narrow { max-width: 520px; }
+.stack { display: flex; flex-direction: column; gap: 1rem; }
+.input-row { display: flex; gap: .5rem; }
+.meter { height: 6px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 99px; overflow: hidden; }
+.meter span { display: block; height: 100%; width: 0; background: var(--danger); transition: width .2s, background .2s; }
+.suggest { display: flex; flex-direction: column; gap: .4rem; align-items: flex-start; padding: .8rem; background: var(--surface-2); border-radius: 8px; }
+.userbox .btn { white-space: nowrap; }
+@media (max-width: 700px) { .userbox span { display: none; } }
