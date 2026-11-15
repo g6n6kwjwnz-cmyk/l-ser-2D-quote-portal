@@ -95,8 +95,9 @@ def test_dwg_upload_with_converter(client, tmp_path, monkeypatch):
     from app.config import settings
     from tests.test_geometry import _dxf_with_zero_handle
     payload = _dxf_with_zero_handle()
-    fake = tmp_path / "dwg2dxf"
-    fake.write_text(f"""#!{sys.executable}
+    import os
+    script = tmp_path / "fake_dwg2dxf.py"
+    script.write_text("""
 import sys
 args = sys.argv[1:]
 out = args[args.index("-o") + 1]
@@ -104,7 +105,13 @@ src = args[-1]
 data = open(src, "rb").read()[6:]
 open(out, "wb").write(data)
 """)
-    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    if os.name == "nt":  # Windows solo ejecuta ficheros con extensión conocida
+        fake = tmp_path / "dwg2dxf.cmd"
+        fake.write_text(f'@"{sys.executable}" "{script}" %*\r\n')
+    else:
+        fake = tmp_path / "dwg2dxf"
+        fake.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n')
+        fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setattr(settings, "dwg_converter", str(fake))
     r = client.post("/piezas", files={"file": ("pieza.dwg", b"AC1015" + payload, "application/acad")},
                     follow_redirects=False)

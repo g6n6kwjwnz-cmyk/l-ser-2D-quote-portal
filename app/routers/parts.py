@@ -70,7 +70,11 @@ def _analyze_dwg(data: bytes, units: str):
         raise GeometryError("No se ha podido convertir el DWG a DXF. Exporta el plano a DXF desde tu programa de CAD.")
     if units == "auto" and full:
         units = UNIT_CODES.get(read_header_units(full) or 0, "auto")
-    geom, contours = analyze_dxf(minimal, units)
+    try:
+        geom, contours = analyze_dxf(minimal, units)
+    except GeometryError as exc:
+        raise GeometryError("No se ha podido leer la geometría de este DWG (el conversor no la ha extraído). "
+                            "Exporta el plano a DXF desde tu programa de CAD y súbelo de nuevo.") from exc
     geom.warnings.append("DWG leído en modo simplificado: revisa la vista previa (los bloques podrían no aparecer).")
     return geom, contours
 
