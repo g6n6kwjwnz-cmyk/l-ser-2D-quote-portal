@@ -13,7 +13,17 @@
     <span class="filename" data-filename></span>
     <input id="file" type="file" name="file" accept=".dxf,.dwg" required>
   </label>
-  <button class="btn primary" type="submit">Analizar plano</button>
+  <div class="upload-row">
+    <div class="field"><label for="units">Unidades del plano</label>
+      <select id="units" name="units">
+        <option value="auto">Automático (según el DXF)</option>
+        <option value="mm">Milímetros</option>
+        <option value="in">Pulgadas</option>
+        <option value="cm">Centímetros</option>
+        <option value="m">Metros</option>
+      </select></div>
+    <button class="btn primary" type="submit">Analizar plano</button>
+  </div>
 </form>
 
 <h2>Piezas analizadas</h2>

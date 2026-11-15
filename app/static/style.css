@@ -85,7 +85,7 @@ input[type=checkbox] { width: auto; accent-color: var(--primary); }
 .dropzone.drag { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 7%, var(--surface)); }
 .dropzone input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .filename { font-weight: 700; color: var(--primary); }
-.upload .btn { align-self: flex-end; }
+
 .part-layout { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 1rem; }
 @media (max-width: 860px) { .part-layout { grid-template-columns: 1fr; } }
 .preview { aspect-ratio: 4 / 3; background-color: var(--surface-2); background-image: linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px); background-size: 24px 24px; border-radius: 8px; padding: .5rem; }
@@ -126,3 +126,5 @@ code { font-size: .85em; background: var(--surface-2); padding: .1rem .3rem; bor
 .suggest { display: flex; flex-direction: column; gap: .4rem; align-items: flex-start; padding: .8rem; background: var(--surface-2); border-radius: 8px; }
 .userbox .btn { white-space: nowrap; }
 @media (max-width: 700px) { .userbox span { display: none; } }
+.upload-row { display: flex; justify-content: space-between; align-items: flex-end; gap: 1rem; flex-wrap: wrap; }
+.upload-row .field { min-width: 220px; }

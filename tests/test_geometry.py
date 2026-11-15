@@ -74,3 +74,52 @@ def test_blocks_are_exploded(tmp_path):
 def test_invalid_file():
     with pytest.raises(GeometryError):
         analyze_dxf(b"esto no es un dxf")
+
+
+def test_dimensions_are_not_cut(tmp_path):
+    doc = ezdxf.new(units=4, setup=True)
+    msp = doc.modelspace()
+    msp.add_lwpolyline([(0, 0), (100, 0), (100, 50), (0, 50)], close=True)
+    msp.add_linear_dim(base=(50, 70), p1=(0, 50), p2=(100, 50), dimstyle="EZDXF").render()  # capa 0
+    msp.add_linear_dim(base=(120, 25), p1=(100, 0), p2=(100, 50), angle=90, dimstyle="EZDXF").render()
+    p = tmp_path / "cotas.dxf"
+    doc.saveas(p)
+    g, _ = analyze_dxf(p.read_bytes())
+    assert g.pierce_count == 1 and g.cut_length_mm == pytest.approx(300, abs=0.1)
+    assert (g.bbox_width_mm, g.bbox_height_mm) == (100, 50)
+
+
+def test_binary_dxf(tmp_path):
+    doc = ezdxf.new(units=4)
+    doc.modelspace().add_circle((0, 0), 50)
+    p = tmp_path / "bin.dxf"
+    doc.saveas(p, fmt="bin")
+    data = p.read_bytes()
+    assert data.startswith(b"AutoCAD Binary DXF")
+    g, _ = analyze_dxf(data)
+    assert g.cut_length_mm == pytest.approx(math.pi * 100, rel=1e-3)
+
+
+def test_units_override_and_tiny_part_warning(tmp_path):
+    doc = ezdxf.new("R12")          # R12 no guarda unidades
+    doc.modelspace().add_circle((0, 0), 2)   # Ø4 «pulgadas»
+    p = tmp_path / "r12.dxf"
+    doc.saveas(p)
+    g, _ = analyze_dxf(p.read_bytes())
+    assert any("unidades" in w for w in g.warnings)
+    g, _ = analyze_dxf(p.read_bytes(), units="in")
+    assert g.bbox_width_mm == pytest.approx(101.6, abs=0.01)
+
+
+def test_block_on_ignored_layer_is_skipped(tmp_path):
+    doc = ezdxf.new(units=4)
+    blk = doc.blocks.new("CAJETIN")
+    blk.add_lwpolyline([(0, 0), (50, 0), (50, 20), (0, 20)], close=True)
+    msp = doc.modelspace()
+    msp.add_circle((0, 0), 10)
+    doc.layers.add("CAJETIN")
+    msp.add_blockref("CAJETIN", (100, 100), dxfattribs={"layer": "CAJETIN"})
+    p = tmp_path / "cajetin.dxf"
+    doc.saveas(p)
+    g, _ = analyze_dxf(p.read_bytes())
+    assert g.pierce_count == 1

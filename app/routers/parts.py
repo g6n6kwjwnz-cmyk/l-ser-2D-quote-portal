@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..costing.engine import CostingError, QuoteInput, compute_quote
 from ..db import get_db
-from ..geometry.dxf_engine import GeometryError, analyze_dxf, render_svg
+from ..geometry.dxf_engine import UNIT_CHOICES, GeometryError, analyze_dxf, render_svg
 from ..models import CostSettings, Machine, Material, Part
 from ..web import templates
 
@@ -84,7 +84,8 @@ def list_parts(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("")
-async def upload_part(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_part(request: Request, file: UploadFile = File(...), units: str = Form("auto"),
+                      db: Session = Depends(get_db)):
     def fail(msg: str, status: int = 422):
         parts = db.scalars(select(Part).order_by(Part.created_at.desc()).limit(100)).all()
         return templates.TemplateResponse(request, "parts/list.html", {
@@ -103,7 +104,9 @@ async def upload_part(request: Request, file: UploadFile = File(...), db: Sessio
         return fail("El contenido del fichero no corresponde a un DXF/DWG válido.")
     try:
         dxf = _convert_dwg(data) if kind == "dwg" else data
-        geom, contours = analyze_dxf(dxf)
+        if units not in UNIT_CHOICES:
+            return fail("Unidad no válida.")
+        geom, contours = analyze_dxf(dxf, units)
         svg = render_svg(contours)
     except GeometryError as exc:
         return fail(str(exc))

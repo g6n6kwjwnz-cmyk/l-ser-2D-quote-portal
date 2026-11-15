@@ -15,11 +15,12 @@ from __future__ import annotations
 
 import io
 import math
+import os
+import tempfile
 from dataclasses import dataclass, field, asdict
 
 import ezdxf
 from ezdxf import recover, units as dxf_units
-from ezdxf.disassemble import recursive_decompose
 from ezdxf.path import make_path
 from shapely.geometry import Polygon, Point
 from shapely.validation import make_valid
@@ -75,10 +76,21 @@ class GeometryResult:
 
 # --------------------------------------------------------------------------- lectura
 
+BINARY_SENTINEL = b"AutoCAD Binary DXF"
+
+
 def _read_document(data: bytes):
     try:
+        if data.startswith(BINARY_SENTINEL):
+            # DXF binario: ezdxf lo lee desde fichero; se usa un temporal que se borra al momento
+            with tempfile.TemporaryDirectory() as tmp:
+                path = os.path.join(tmp, "plano.dxf")
+                with open(path, "wb") as fh:
+                    fh.write(data)
+                doc = ezdxf.readfile(path)
+            return doc
         doc, auditor = recover.read(io.BytesIO(data))
-    except (IOError, ezdxf.DXFStructureError) as exc:
+    except (IOError, ezdxf.DXFStructureError, ValueError) as exc:
         raise GeometryError(f"El fichero no es un DXF válido ({exc}).") from exc
     if auditor.has_errors:
         # recover ya intenta reparar; se continúa y se avisa
@@ -96,10 +108,16 @@ def _layer_is_ignored(doc, layer_name: str) -> bool:
     return False
 
 
-def _unit_factor(doc, warnings: list[str]) -> tuple[float, str]:
+UNIT_CHOICES = {"auto": None, "mm": 4, "cm": 5, "m": 6, "in": 1}
+
+
+def _unit_factor(doc, warnings: list[str], override: int | None = None) -> tuple[float, str]:
+    if override:
+        return dxf_units.conversion_factor(override, dxf_units.MM), f"{dxf_units.unit_name(override)} (indicado al subir)"
     code = doc.units
     if code in (0, None):
-        warnings.append("El DXF no define unidades ($INSUNITS); se asumen milímetros.")
+        warnings.append("El DXF no define unidades ($INSUNITS); se asumen milímetros. "
+                        "Si el plano está en pulgadas, vuelve a subirlo indicando la unidad.")
         return 1.0, "sin definir (mm asumidos)"
     try:
         factor = dxf_units.conversion_factor(code, dxf_units.MM)
@@ -109,16 +127,41 @@ def _unit_factor(doc, warnings: list[str]) -> tuple[float, str]:
     return factor, dxf_units.unit_name(code)
 
 
+NON_CUT_CONTAINERS = {"DIMENSION", "ARC_DIMENSION", "LARGE_RADIAL_DIMENSION", "LEADER", "MLEADER",
+                      "MULTILEADER", "TOLERANCE", "TEXT", "MTEXT", "ATTRIB", "ATTDEF", "HATCH", "VIEWPORT"}
+
+
+def _cut_entities(doc, entities, parent_layer: str | None = None, depth: int = 0):
+    """Recorre el dibujo explotando bloques, descartando cotas/textos y capas no cortables.
+
+    Las entidades en capa «0» dentro de un bloque heredan la capa del bloque insertado (regla de AutoCAD).
+    """
+    if depth > 16:  # protección frente a bloques recursivos o anidamientos absurdos
+        return
+    for e in entities:
+        etype = e.dxftype()
+        if etype in NON_CUT_CONTAINERS:
+            continue
+        layer = e.dxf.get("layer", "0")
+        if parent_layer and layer == "0":
+            layer = parent_layer
+        if _layer_is_ignored(doc, layer):
+            continue
+        if etype == "INSERT":
+            try:
+                children = list(e.virtual_entities())
+            except Exception:
+                continue
+            yield from _cut_entities(doc, children, layer, depth + 1)
+        elif etype in CUTTABLE_TYPES:
+            yield e
+
+
 def _extract_polylines(doc, factor: float, warnings: list[str]):
     """Devuelve lista de (puntos, cerrado) en mm a partir del espacio modelo (bloques explotados)."""
     raw: list[tuple[list[tuple[float, float]], bool]] = []
     skipped_3d = 0
-    for entity in recursive_decompose(doc.modelspace()):
-        etype = entity.dxftype()
-        if etype not in CUTTABLE_TYPES:
-            continue
-        if _layer_is_ignored(doc, entity.dxf.get("layer", "0")):
-            continue
+    for entity in _cut_entities(doc, doc.modelspace()):
         try:
             path = make_path(entity)
         except Exception:
@@ -316,13 +359,19 @@ def analyze_contours(polys: list[tuple[list[tuple[float, float]], bool]], warnin
     return result, contours
 
 
-def analyze_dxf(data: bytes) -> tuple[GeometryResult, list[Contour]]:
+def analyze_dxf(data: bytes, units: str = "auto") -> tuple[GeometryResult, list[Contour]]:
     warnings: list[str] = []
     doc = _read_document(data)
-    factor, unit_name = _unit_factor(doc, warnings)
+    factor, unit_name = _unit_factor(doc, warnings, UNIT_CHOICES.get(units))
     polys = _extract_polylines(doc, factor, warnings)
     polys, dups = _remove_duplicates(polys)
-    return analyze_contours(polys, warnings, units_source=unit_name, duplicates_removed=dups)
+    result, contours = analyze_contours(polys, warnings, units_source=unit_name, duplicates_removed=dups)
+    size = max(result.bbox_width_mm, result.bbox_height_mm)
+    if size < 10:
+        warnings.append(f"La pieza mide solo {size:.1f} mm: comprueba las unidades (¿pulgadas o metros?).")
+    elif size > 6000:
+        warnings.append(f"La pieza mide {size:.0f} mm: comprueba las unidades (¿dibujada en décimas o cm?).")
+    return result, contours
 
 
 # --------------------------------------------------------------------------- vista previa
