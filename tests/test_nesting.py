@@ -172,3 +172,96 @@ def test_nesting_requires_login(anon):
     assert anon.get("/anidado", follow_redirects=False).status_code == 303
     assert anon.get("/retales", follow_redirects=False).status_code == 303
     assert anon.post("/anidado/1/comprobar", json={"sheets": []}).status_code == 401
+
+
+# ------------------------------------------------------------------ optimizador y editor ampliado
+def test_optimize_engine_valid_and_not_worse():
+    from app.nesting.engine import optimize, score
+    items = [NestItem("a", box(0, 0, 300, 120), 10), NestItem("b", Polygon([(0, 0), (200, 0), (0, 200)]), 12)]
+    base = nest(items, 1500, 1000, 5, 8)
+    shapes = {"a": items[0].shape, "b": items[1].shape}
+    alts = optimize(items, [(1500, 1000), (1000, 500)], 5, 8, (0, 90, 180, 270), time_budget=10, workers=1)
+    best = alts[0]
+    assert best["score"]["consumed_mm2"] <= score(base, shapes, 300)["consumed_mm2"] + 1
+    for pls, src in zip(best["result"].sheets, best["result"].sheet_sources):
+        assert check_layout(shapes, [p.to_dict() for p in pls], src["w"], src["h"], 5, 8) == []
+
+
+def test_compact_slides_left_without_conflicts():
+    from app.nesting.engine import Placement, compact
+    shapes = {"a": box(0, 0, 100, 100)}
+    pls = [Placement("a", 400, 300, 0), Placement("a", 600, 50, 0)]
+    out = compact(shapes, pls, 1000, 500, 5, 10)
+    assert all(p.x < 200 for p in out)
+    assert check_layout(shapes, [p.to_dict() for p in out], 1000, 500, 5, 10) == []
+
+
+def _make_nest(client, qty=8):
+    pid = _upload(client)
+    r = client.post("/anidado", data={"material_id": "1", "thickness_mm": "4", "format_id": "1",
+                                      f"qty-{pid}": str(qty)}, follow_redirects=False)
+    nid = int(r.headers["location"].rsplit("/", 1)[1])
+    from app import main
+    from app.models import Nest
+    with main.SessionLocal() as db:
+        return pid, nid, db.get(Nest, nid).sheets
+
+
+def test_optimize_endpoint_and_alternatives(client):
+    pid, nid, _ = _make_nest(client)
+    r = client.post(f"/anidado/{nid}/optimizar", data={"priority": "material", "budget": "10",
+                                                       "rotation_step": "45", "formats": "todos"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"].endswith("optimizado")
+    page = client.get(f"/anidado/{nid}").text
+    assert "Propuestas" in page and "En uso" in page
+    from app import main
+    from app.models import Nest
+    with main.SessionLocal() as db:
+        n = db.get(Nest, nid)
+        assert n.conflicts == 0 and n.options["rotation_step"] == 45 and n.options["alternatives"]
+        alts = len(n.options["alternatives"])
+    if alts > 1:
+        assert client.post(f"/anidado/{nid}/propuesta/1", follow_redirects=False).status_code == 303
+    assert client.post(f"/anidado/{nid}/propuesta/9", follow_redirects=False).status_code == 422
+
+
+def test_editor_operations(client):
+    pid, nid, sheets = _make_nest(client, qty=6)
+    # quitar dos piezas y moverlas lejos; compactar; colocar pendientes
+    sh = [{"source": sheets[0]["source"], "placements": [dict(p) for p in sheets[0]["placements"][:4]]}]
+    sh[0]["placements"][0].update(x=1500, y=700)
+    r = client.post(f"/anidado/{nid}/operacion", json={"op": "compactar", "sheet": 0, "sheets": sh}).json()
+    assert r["eval"]["conflicts"] == 0 and r["sheets"][0]["placements"][0]["x"] < 1500
+    r = client.post(f"/anidado/{nid}/operacion", json={"op": "pendientes", "sheets": r["sheets"]}).json()
+    assert r["eval"]["pending"] == {} and r["eval"]["conflicts"] == 0
+    assert r["eval"]["sheets"][0]["plan"]["time_s"] > 0 and r["eval"]["time_s"] > 0
+    # bloquear una pieza y recolocar: la bloqueada no se mueve
+    s2 = r["sheets"]
+    s2[0]["placements"][0].update(x=900, y=600, locked=True)
+    r = client.post(f"/anidado/{nid}/operacion", json={"op": "recolocar", "sheet": 0, "sheets": s2}).json()
+    locked = [p for p in r["sheets"][0]["placements"] if p.get("locked")]
+    assert locked and (locked[0]["x"], locked[0]["y"]) == (900, 600) and r["eval"]["conflicts"] == 0
+    # imán sobre una selección
+    r2 = client.post(f"/anidado/{nid}/operacion", json={"op": "iman", "sheet": 0, "selected": [], "sheets": r["sheets"]})
+    assert r2.status_code == 422
+    assert client.post(f"/anidado/{nid}/operacion", json={"op": "borrar_todo", "sheets": r["sheets"]}).status_code == 422
+    # giro libre (37°) guardado y validado
+    s3 = r["sheets"]
+    s3[0]["placements"][1]["rotation"] = 37
+    ev = client.post(f"/anidado/{nid}/comprobar", json={"sheets": s3})
+    assert ev.status_code == 200
+
+
+def test_grain_restriction(client):
+    pid, nid, sheets = _make_nest(client, qty=4)
+    client.post(f"/anidado/{nid}/piezas", data={f"qty-{pid}": "4", f"giro-{pid}": "fijo"})
+    bad = [{"source": sheets[0]["source"], "placements": [dict(sheets[0]["placements"][0], rotation=90)]}]
+    r = client.post(f"/anidado/{nid}/comprobar", json={"sheets": bad})
+    assert r.status_code == 422 and "girar" in r.json()["error"]
+    client.post(f"/anidado/{nid}/auto")
+    from app import main
+    from app.models import Nest
+    with main.SessionLocal() as db:
+        n = db.get(Nest, nid)
+        assert all(p["rotation"] == 0 for s in n.sheets for p in s["placements"])
+        assert n.items[0]["giro"] == "fijo"

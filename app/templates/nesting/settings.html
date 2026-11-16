@@ -26,13 +26,13 @@
 </form>
 
 <section class="card"><h2>Formatos de chapa</h2>
-  <table class="compact"><tbody>{% for f in formats %}
+  <div class="table-wrap"><table class="compact"><tbody>{% for f in formats %}
     <tr class="{% if not f.active %}inactive{% endif %}"><td><strong>{{ f.name }}</strong><br><span class="muted small">{{ f.label }}</span></td>
       <td>{% if f.is_default %}<span class="badge ok">Predeterminado</span>{% elif not f.active %}<span class="badge off">Inactivo</span>{% endif %}</td>
       <td class="right"><form method="post" action="/anidado/formatos/{{ f.id }}" class="actions">
         {% if not f.is_default %}<button class="btn small-btn" name="accion" value="predeterminado">Predeterminado</button>{% endif %}
         <button class="btn small-btn ghost" name="accion" value="estado">{{ 'Desactivar' if f.active else 'Activar' }}</button></form></td></tr>
-  {% endfor %}</tbody></table>
+  {% endfor %}</tbody></table></div>
   <form method="post" action="/anidado/formatos" class="fields" style="margin-top:1rem">
     <div class="field"><label for="f-name">Nombre</label><input id="f-name" name="name" maxlength="60" placeholder="p. ej. Formato 4000×2000"></div>
     <div class="field"><label for="f-w">Largo <span class="unit">mm</span></label><input id="f-w" name="width_mm" type="number" min="100" step="any" required></div>

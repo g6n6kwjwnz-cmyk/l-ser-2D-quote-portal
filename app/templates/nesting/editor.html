@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% block title %}{{ n.name }} · Anidado{% endblock %}
 {% block content %}
 <p class="crumbs"><a href="/anidado">Anidado</a> /{% if n.request %} <a href="/peticiones/{{ n.request_id }}">{{ n.request.number }}</a> /{% endif %}</p>
@@ -7,31 +8,93 @@
     <p class="muted">{{ n.material.code }} · {{ n.thickness_mm|num(1) }} mm · formato {{ n.sheet_w_mm|num(0) }} × {{ n.sheet_h_mm|num(0) }} mm ·
       separación <strong>{{ n.gap_mm|num(1) }} mm</strong> · borde <strong>{{ n.edge_mm|num(1) }} mm</strong>{% if not n.allow_rotation %} · sin giro{% endif %}</p></div>
   <div class="actions">
-    <a class="btn" href="/anidado/{{ n.id }}/dxf">Exportar DXF</a>
+    <a class="btn" href="/anidado/{{ n.id }}/dxf">{{ icon('download') }} Exportar DXF</a>
     {% if n.status == 'borrador' %}
-    <form method="post" action="/anidado/{{ n.id }}/auto"><button class="btn" type="submit" data-confirm-dirty>Rehacer automático</button></form>
+    <form method="post" action="/anidado/{{ n.id }}/auto"><button class="btn" type="submit" data-confirm-dirty>{{ icon('wand') }} Rehacer automático</button></form>
     {% else %}
-    <form method="post" action="/anidado/{{ n.id }}/borrador"><button class="btn" type="submit">Volver a borrador</button></form>
+    <form method="post" action="/anidado/{{ n.id }}/borrador"><button class="btn" type="submit">{{ icon('back') }} Volver a borrador</button></form>
     {% endif %}
   </div>
 </div>
 {% if siblings|length > 1 %}<nav class="tabs small">{% for s in siblings %}<a href="/anidado/{{ s.id }}" {% if s.id == n.id %}aria-current="page"{% endif %}>{{ s.material.code }} {{ s.thickness_mm|num(1) }} mm</a>{% endfor %}</nav>{% endif %}
 {% if msg == 'auto' %}<div class="alert ok">Anidado automático recalculado.</div>{% endif %}
 {% if msg == 'confirmado' %}<div class="alert ok">Anidado confirmado. Los retales usados han salido del almacén y los sobrantes marcados se han dado de alta.</div>{% endif %}
+{% if msg == 'optimizado' %}<div class="alert ok">Mejor propuesta aplicada{% if opts.tried %} (se han comparado {{ opts.tried }} soluciones distintas){% endif %}. Abajo tienes las alternativas.</div>{% endif %}
+{% if msg == 'ocupado' %}<div class="alert warn">Ya hay otra optimización en marcha. Espera a que termine y vuelve a intentarlo.</div>{% endif %}
+{% if msg == 'propuesta' %}<div class="alert ok">Propuesta aplicada.</div>{% endif %}
+{% if msg == 'piezas' %}<div class="alert ok">Piezas actualizadas. Usa «Colocar pendientes» si has aumentado cantidades.</div>{% endif %}
+{% if msg == 'demasiadas' %}<div class="alert error">Demasiadas piezas para un anidado.</div>{% endif %}
 {% if msg == 'conflictos' %}<div class="alert error">No se puede confirmar con piezas en conflicto. Corrígelas y guarda.</div>{% endif %}
 {% if old_parts %}<div class="alert warn">{{ old_parts|length }} pieza(s) se subieron antes de esta versión y solo tienen la silueta simplificada: el anidado es aproximado. Vuelve a subirlas para tener la geometría completa.</div>{% endif %}
 
 <div class="nest-layout" id="nest-app" data-nest='{{ data_json }}'>
-  <section class="card nest-canvas">
+  <section class="card nest-canvas" id="nest-canvas">
     <div class="nest-toolbar">
       <div class="sheet-tabs" id="sheet-tabs" role="tablist"></div>
-      <div class="actions">
-        <button class="btn small-btn" type="button" id="btn-add-sheet" data-edit>+ Chapa</button>
-        <button class="btn small-btn ghost" type="button" id="btn-del-sheet" data-edit>Quitar chapa vacía</button>
+      <div class="actions" data-edit>
+        <select id="new-sheet-format" class="small-select" aria-label="Formato de la chapa nueva">{% for f in formats %}<option value="{{ f.width_mm|int }}x{{ f.height_mm|int }}" {% if f.width_mm == n.sheet_w_mm and f.height_mm == n.sheet_h_mm %}selected{% endif %}>{{ f.width_mm|int }}×{{ f.height_mm|int }}</option>{% endfor %}</select>
+        <button class="ibtn" type="button" id="btn-add-sheet" data-tip="Añadir chapa">{{ icon('sheet-add') }}</button>
+        <button class="ibtn" type="button" id="btn-del-sheet" data-tip="Quitar chapa vacía">{{ icon('sheet-del') }}</button>
       </div>
     </div>
-    <div class="svg-wrap"><svg id="nest-svg" role="img" aria-label="Disposición de piezas en la chapa"></svg></div>
-    <p class="help">Arrastra para mover · <kbd>R</kbd> gira 90° · <kbd>Supr</kbd> quita la pieza · flechas: 1 mm (con <kbd>Mayús</kbd> 10 mm). Rojo = solape, separación menor de {{ n.gap_mm|num(1) }} mm o fuera del borde útil. Verde discontinuo = retal aprovechable.</p>
+    <div class="cad-toolbar" role="toolbar" aria-label="Herramientas del editor">
+      <div class="tgroup" role="radiogroup" aria-label="Herramienta">
+        <button class="ibtn" type="button" data-tool="select" data-tip="Seleccionar y mover (V)" aria-pressed="true">{{ icon('select') }}</button>
+        <button class="ibtn" type="button" data-tool="hand" data-tip="Desplazar la vista (H) · también botón central o espacio" aria-pressed="false">{{ icon('hand') }}</button>
+        <button class="ibtn" type="button" data-tool="measure" data-tip="Medir distancia (M)" aria-pressed="false">{{ icon('measure') }}</button>
+      </div>
+      <div class="tgroup">
+        <button class="ibtn" type="button" id="btn-zoom-in" data-tip="Acercar (rueda del ratón)">{{ icon('zoom-in') }}</button>
+        <button class="ibtn" type="button" id="btn-zoom-out" data-tip="Alejar">{{ icon('zoom-out') }}</button>
+        <button class="ibtn" type="button" id="btn-fit" data-tip="Ver la chapa entera (doble clic o F)">{{ icon('fit') }}</button>
+        <button class="ibtn" type="button" id="btn-zoom-sel" data-tip="Zoom a la selección">{{ icon('zoom-sel') }}</button>
+        <span class="zoom-pct" id="zoom-pct" aria-live="polite">100 %</span>
+      </div>
+      <div class="tgroup" data-edit>
+        <button class="ibtn" type="button" id="btn-undo" data-tip="Deshacer (Ctrl+Z)">{{ icon('undo') }}</button>
+        <button class="ibtn" type="button" id="btn-redo" data-tip="Rehacer (Ctrl+Y)">{{ icon('redo') }}</button>
+      </div>
+      <div class="tgroup" data-edit>
+        <button class="ibtn" type="button" id="btn-rot" data-tip="Girar 90° (R)">{{ icon('rotate') }}</button>
+        <button class="ibtn" type="button" id="btn-rot-free" data-tip="Girar a un ángulo…">{{ icon('rotate-free') }}</button>
+        <button class="ibtn" type="button" id="btn-dup" data-tip="Duplicar (Ctrl+D)">{{ icon('duplicate') }}</button>
+        <button class="ibtn" type="button" id="btn-lock" data-tip="Bloquear / desbloquear (L)">{{ icon('lock') }}</button>
+        <button class="ibtn" type="button" id="btn-magnet" data-tip="Imán: arrimar la selección a sus vecinas">{{ icon('magnet') }}</button>
+        <button class="ibtn danger" type="button" id="btn-del" data-tip="Quitar de la chapa (Supr)">{{ icon('trash') }}</button>
+      </div>
+      <div class="tgroup" data-edit>
+        <button class="ibtn" type="button" data-align="izq" data-tip="Alinear a la izquierda">{{ icon('align-left') }}</button>
+        <button class="ibtn" type="button" data-align="der" data-tip="Alinear a la derecha">{{ icon('align-right') }}</button>
+        <button class="ibtn" type="button" data-align="abajo" data-tip="Alinear abajo">{{ icon('align-bottom') }}</button>
+        <button class="ibtn" type="button" data-align="arriba" data-tip="Alinear arriba">{{ icon('align-top') }}</button>
+      </div>
+      <div class="tgroup" data-edit>
+        <button class="ibtn" type="button" id="btn-compact" data-tip="Compactar: arrimar todas abajo a la izquierda">{{ icon('compact') }}</button>
+        <button class="ibtn" type="button" id="btn-pending" data-tip="Colocar las pendientes en los huecos">{{ icon('place') }}</button>
+        <button class="ibtn" type="button" id="btn-reflow" data-tip="Recolocar la chapa sin mover las bloqueadas">{{ icon('reflow') }}</button>
+      </div>
+      <div class="tgroup">
+        <button class="ibtn" type="button" id="btn-grid" data-tip="Rejilla (G)" aria-pressed="false">{{ icon('grid') }}</button>
+        <button class="ibtn" type="button" id="btn-order" data-tip="Orden de corte" aria-pressed="false">{{ icon('route') }}</button>
+        <button class="ibtn" type="button" id="btn-full" data-tip="Pantalla completa">{{ icon('fullscreen') }}</button>
+      </div>
+      <button class="btn primary small-btn save-btn" type="button" id="btn-save" data-edit>{{ icon('save') }} Guardar</button>
+    </div>
+    <div class="cad-stage" id="cad-stage">
+      <div class="ruler-corner" aria-hidden="true">mm</div>
+      <svg class="ruler ruler-x" id="ruler-x" aria-hidden="true"></svg>
+      <svg class="ruler ruler-y" id="ruler-y" aria-hidden="true"></svg>
+      <div class="svg-wrap" id="svg-wrap"><svg id="nest-svg" role="img" aria-label="Disposición de piezas en la chapa"></svg>
+        <div class="tip" id="tip" hidden></div></div>
+    </div>
+    <div class="cad-status" role="status">
+      <span id="st-xy">X — · Y —</span><span id="st-tool">Seleccionar</span><span id="st-selcount"></span><span id="st-hover"></span>
+      <span id="save-state" class="save-state"></span>
+    </div>
+    <p class="small" id="measure-out" role="status"></p>
+    <details class="help-keys"><summary class="small">Atajos y colores</summary>
+      <p class="help">Rueda: zoom en el puntero · botón central, espacio o mano: desplazar · doble clic: encajar · arrastrar en vacío: recuadro (de izquierda a derecha selecciona lo que queda dentro; de derecha a izquierda, lo que toca) · <kbd>Mayús</kbd>/<kbd>Ctrl</kbd>+clic: añadir a la selección · <kbd>Ctrl+A</kbd> todas · <kbd>R</kbd> gira 90° · <kbd>Ctrl+D</kbd> duplica · <kbd>L</kbd> bloquea · <kbd>Supr</kbd> quita · flechas 1 mm (<kbd>Mayús</kbd> 10 mm) · <kbd>Ctrl+Z</kbd>/<kbd>Ctrl+Y</kbd>.
+      Rojo = solape, separación menor de {{ n.gap_mm|num(1) }} mm o fuera del borde útil · verde rayado = retal aprovechable · contorno discontinuo = bloqueada.</p></details>
   </section>
 
   <aside class="nest-side">
@@ -40,33 +103,68 @@
       <dl class="kv">
         <dt>Chapas</dt><dd id="st-sheets">—</dd>
         <dt>Aprovechamiento</dt><dd id="st-util">—</dd>
-        <dt>Esta chapa</dt><dd id="st-sheet-util">—</dd>
         <dt>Chapa consumida</dt><dd id="st-consumed">—</dd>
+        <dt>Tiempo de corte</dt><dd id="st-time">—</dd>
+        <dt>Corte</dt><dd id="st-cut">—</dd>
+        <dt>Esta chapa</dt><dd id="st-sheet">—</dd>
         <dt>Conflictos</dt><dd id="st-conf">—</dd>
       </dl>
-      <p class="help">El aprovechamiento real se aplica al coste de material de la oferta (sin contar los retales que vuelven al almacén).</p>
-      <div class="form-actions" data-edit>
-        <button class="btn primary" type="button" id="btn-save">Guardar</button>
-        <span class="small muted" id="save-state" role="status"></span>
-      </div>
-    </section>
-
-    <section class="card" id="sel-card" hidden>
-      <h2>Pieza seleccionada</h2>
-      <p id="sel-name" class="small"></p>
-      <div class="actions" data-edit>
-        <button class="btn small-btn" type="button" id="btn-rot">Girar 90°</button>
-        <button class="btn small-btn danger" type="button" id="btn-del">Quitar</button>
-        <label class="small">Mover a <select id="sel-move"></select></label>
-      </div>
-      <p id="sel-reason" class="error-text"></p>
+      <p class="help">El aprovechamiento real se aplica al coste de material de la oferta (sin los retales que vuelven al almacén). Tiempo estimado con la máquina y el gas por defecto, incluido el cambio de chapa.</p>
     </section>
 
     <section class="card">
       <h2>Pendientes de colocar</h2>
       <ul class="pending" id="pending"></ul>
-      <p class="help" data-edit>Pulsa una pieza para añadirla a la chapa actual (aparece en la esquina; arrástrala a su sitio).</p>
+      <p class="help" data-edit>Arrastra una miniatura a la chapa o púlsala para añadirla en la esquina.</p>
     </section>
+
+    <section class="card" id="sel-card" hidden>
+      <h2>Selección</h2>
+      <p id="sel-name" class="small"></p>
+      <div class="sel-grid" data-single>
+        <label>X <span class="unit">mm</span><input id="sel-x" inputmode="decimal"></label>
+        <label>Y <span class="unit">mm</span><input id="sel-y" inputmode="decimal"></label>
+        <label>Giro <span class="unit">°</span><input id="sel-rot" inputmode="decimal"></label>
+        <button class="ibtn" type="button" id="btn-apply-pos" data-tip="Aplicar posición y giro">{{ icon('check') }}</button>
+      </div>
+      <label class="small" data-edit>Mover a <select id="sel-move"></select></label>
+      <p id="sel-reason" class="error-text"></p>
+    </section>
+
+    {% if n.status == 'borrador' %}
+    <form class="card" method="post" action="/anidado/{{ n.id }}/optimizar" data-busy="Buscando la mejor propuesta…">
+      <h2>Buscar la mejor propuesta</h2>
+      <p class="help">Prueba distintos órdenes de piezas, direcciones de llenado y formatos, usa antes los retales y se queda con la mejor según la prioridad.</p>
+      <div class="field"><label for="o-pri">Prioridad</label><select id="o-pri" name="priority">{% for k, v in priorities.items() %}<option value="{{ k }}" {% if opts.get('priority', 'material') == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+      <div class="field"><label for="o-rot">Giros</label><select id="o-rot" name="rotation_step" {% if not n.allow_rotation %}disabled{% endif %}>{% for k, v in rotation_steps.items() %}<option value="{{ k }}" {% if opts.get('rotation_step', 90) == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+      <div class="field"><label for="o-fmt">Formatos de chapa</label><select id="o-fmt" name="formats"><option value="todos">Probar todos los formatos activos</option><option value="actual">Solo {{ n.sheet_w_mm|int }}×{{ n.sheet_h_mm|int }}</option></select></div>
+      <div class="field"><label for="o-t">Tiempo de búsqueda</label><select id="o-t" name="budget"><option value="10">10 segundos</option><option value="30">30 segundos</option><option value="60">1 minuto</option></select></div>
+      <div class="form-actions"><button class="btn primary" type="submit" data-confirm-dirty>{{ icon('sparkles') }} Optimizar</button></div>
+      {% if alternatives %}
+      <h3>Propuestas</h3>
+      <ol class="alts">{% for a in alternatives %}
+        <li class="{% if opts.get('chosen') == loop.index0 %}chosen{% endif %}">
+          <strong>{{ a.sheet_count }} chapa{{ 's' if a.sheet_count != 1 }}</strong> de {{ a.format[0]|int }}×{{ a.format[1]|int }}{% if a.last_format %} (última de {{ a.last_format[0]|int }}×{{ a.last_format[1]|int }}){% endif %} ·
+          consumo {{ a.consumed_m2|num(2) }} m² · aprov. {{ a.utilization|num(1) }} %{% if a.offcut_m2 %} · retal {{ a.offcut_m2|num(2) }} m²{% endif %}{% if a.unplaced %} · <span class="error-text">{{ a.unplaced }} sin colocar</span>{% endif %}
+          <br><span class="muted small">{{ a.strategy }}</span>
+          {% if opts.get('chosen') != loop.index0 %}<form method="post" action="/anidado/{{ n.id }}/propuesta/{{ loop.index0 }}"><button class="btn small-btn" type="submit" data-confirm-dirty>Usar esta</button></form>{% else %}<span class="badge ok">En uso</span>{% endif %}
+        </li>{% endfor %}</ol>
+      {% endif %}
+    </form>
+
+    <form class="card" method="post" action="/anidado/{{ n.id }}/piezas">
+      <h2>Piezas</h2>
+      <div class="table-wrap"><table class="compact items-table"><thead><tr><th>Pieza</th><th class="num">Cant.</th><th>Giro</th></tr></thead><tbody>
+      {% for it in n.items %}{% set info = parts.get(it.part_id) %}{% if info %}
+        <tr><td class="small">{{ info.part.filename }}</td>
+          <td class="num"><input name="qty-{{ it.part_id }}" type="number" min="0" max="2000" value="{{ it.quantity }}" aria-label="Cantidad"></td>
+          <td><select name="giro-{{ it.part_id }}" aria-label="Giro permitido">{% for k, v in item_rotations.items() %}<option value="{{ k }}" {% if it.get('giro', 'libre') == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></td></tr>
+      {% endif %}{% endfor %}</tbody></table></div>
+      <p class="help">Con veta o acabado direccional (inox satinado, chapa lagrimada…) elige «Solo 180°» (se puede dar la vuelta pero no girar 90°) o «Fijo» (sin girar).</p>
+      <button class="btn small-btn" type="submit" data-confirm-dirty>Guardar piezas</button>
+    </form>
+    {% endif %}
+
 
     {% if n.status == 'borrador' %}
     <form class="card" method="post" action="/anidado/{{ n.id }}/confirmar" id="confirm-form">
