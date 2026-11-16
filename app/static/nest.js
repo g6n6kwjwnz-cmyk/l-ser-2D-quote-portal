@@ -1,4 +1,4 @@
-// Editor de anidado. El navegador solo dibuja y mueve piezas; el servidor valida separaciones, calcula
+// Editor de anidado tipo CAD. El navegador dibuja y mueve piezas; el servidor valida separaciones, calcula
 // aprovechamiento y orden de corte, y hace las operaciones geométricas (compactar, imán, colocar pendientes…).
 (() => {
   "use strict";
@@ -7,6 +7,7 @@
   const D = JSON.parse(app.dataset.nest);
   const NS = "http://www.w3.org/2000/svg";
   const svg = document.getElementById("nest-svg");
+  const wrap = document.getElementById("svg-wrap");
   const $ = (id) => document.getElementById(id);
   const fmt = (v, d = 1) => Number(v).toLocaleString("es-ES", { minimumFractionDigits: d, maximumFractionDigits: d });
   const dur = (s) => { if (s == null) return "—"; s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
@@ -14,16 +15,23 @@
   const editable = D.editable;
   if (!editable) document.querySelectorAll("[data-edit]").forEach((el) => (el.hidden = true));
 
+  // colores por pieza (paleta legible en claro y oscuro)
+  const PALETTE = [["#bfdbfe", "#1d4ed8"], ["#bbf7d0", "#15803d"], ["#fde68a", "#b45309"], ["#fbcfe8", "#be185d"],
+    ["#c7d2fe", "#4338ca"], ["#a5f3fc", "#0e7490"], ["#fed7aa", "#c2410c"], ["#e9d5ff", "#7e22ce"], ["#d9f99d", "#4d7c0f"], ["#fecdd3", "#be123c"]];
+  const colorOf = {};
+  D.items.forEach((it, i) => (colorOf[it.part_id] = PALETTE[i % PALETTE.length]));
+
   let sheets = clone(D.sheets);
   let ev = D.eval;
   let cur = 0;
-  let sel = [];               // índices seleccionados en la chapa actual
+  let sel = [];
   let dirty = false;
   let checkTimer = null;
-  let view = null;            // {x, y, w, h} del viewBox
-  let tool = "mover";         // mover | medir
-  let showOrder = false;
-  let measure = null;         // {a, b}
+  let view = null;          // viewBox {x, y, w, h} en coordenadas SVG (eje Y hacia abajo, chapa volteada)
+  let tool = "select";      // select | hand | measure
+  let showOrder = false, showGrid = false;
+  let measure = null;
+  let spaceDown = false;
   const undo = [], redo = [];
 
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
@@ -33,6 +41,7 @@
     if (parent) parent.appendChild(e);
     return e;
   };
+  const H = () => (sheets[cur] ? sheets[cur].source.h : 0);
 
   // ---------------------------------------------------------------- geometría (giro igual que el servidor)
   const shapeCache = new Map();
@@ -60,32 +69,88 @@
     cur = Math.min(cur, sheets.length - 1); sel = [];
     render(); scheduleCheck();
   }
-
   function setDirty(v) {
     dirty = v;
     $("save-state").textContent = v ? "Cambios sin guardar" : "";
     const c = $("btn-confirm");
     if (c) c.disabled = v || (ev && ev.conflicts > 0);
   }
+  const say = (t) => { $("save-state").textContent = t; };
 
-  // ---------------------------------------------------------------- dibujo
-  function fitView() {
+  // ---------------------------------------------------------------- vista: zoom, encuadre, reglas
+  function aspect() { const r = wrap.getBoundingClientRect(); return r.width > 0 ? r.height / r.width : 0.5; }
+  function fitBox(x0, y0, x1, y1, pad = 0.04) {
+    const w = (x1 - x0) * (1 + 2 * pad) || 100, h = (y1 - y0) * (1 + 2 * pad) || 100, a = aspect();
+    const vw = Math.max(w, h / a), vh = vw * a;
+    view = { x: (x0 + x1) / 2 - vw / 2, y: (y0 + y1) / 2 - vh / 2, w: vw, h: vh };
+  }
+  function fitView() { const sh = sheets[cur]; if (sh) fitBox(0, 0, sh.source.w, sh.source.h); }
+  function fitSelection() {
+    const ps = selected(); if (!ps.length) { fitView(); return; }
+    const bs = ps.map(bbox), h = H();
+    fitBox(Math.min(...bs.map((b) => b.x0)), h - Math.max(...bs.map((b) => b.y1)), Math.max(...bs.map((b) => b.x1)), h - Math.min(...bs.map((b) => b.y0)), 0.3);
+    applyView();
+  }
+  function scale() { return wrap.getBoundingClientRect().width / view.w; }   // px por mm
+  function applyView() {
+    svg.setAttribute("viewBox", `${view.x} ${view.y} ${view.w} ${view.h}`);
     const sh = sheets[cur];
-    if (!sh) return;
-    const m = Math.max(sh.source.w, sh.source.h) * 0.02;
-    view = { x: -m, y: -m, w: sh.source.w + 2 * m, h: sh.source.h + 2 * m };
+    if (sh) $("zoom-pct").textContent = Math.round((100 * (sh.source.w * 1.08)) / view.w) + " %";
+    drawRulers(); drawGrid();
+  }
+  function zoomAt(k, fx = 0.5, fy = 0.5) {
+    const nw = Math.min(Math.max(view.w * k, 5), 200000), nh = nw * (view.h / view.w);
+    view.x += (view.w - nw) * fx; view.y += (view.h - nh) * fy; view.w = nw; view.h = nh;
+    applyView();
+  }
+  function niceStep(pxPerMm, minPx) {
+    const raw = minPx / pxPerMm, p = Math.pow(10, Math.floor(Math.log10(raw)));
+    return [1, 2, 5, 10].map((m) => m * p).find((s) => s >= raw);
+  }
+  function drawRulers() {
+    const rx = $("ruler-x"), ry = $("ruler-y");
+    const r = wrap.getBoundingClientRect(); if (!r.width) return;
+    const k = scale(), step = niceStep(k, 70), minor = step / 5, h = H();
+    rx.setAttribute("viewBox", `0 0 ${r.width} 24`); ry.setAttribute("viewBox", `0 0 24 ${r.height}`);
+    let ox = "", oy = "";
+    for (let v = Math.floor(view.x / minor) * minor; v <= view.x + view.w; v += minor) {
+      const px = (v - view.x) * k, major = Math.abs(v / step - Math.round(v / step)) < 1e-6;
+      ox += `<line x1="${px}" x2="${px}" y1="${major ? 10 : 18}" y2="24"/>` + (major ? `<text x="${px + 3}" y="10">${Math.round(v)}</text>` : "");
+    }
+    // eje Y: el SVG está volteado; el valor mostrado es la Y de la chapa (0 abajo)
+    const y0w = h - (view.y + view.h), y1w = h - view.y;
+    for (let v = Math.floor(y0w / minor) * minor; v <= y1w; v += minor) {
+      const py = (h - v - view.y) * k, major = Math.abs(v / step - Math.round(v / step)) < 1e-6;
+      oy += `<line y1="${py}" y2="${py}" x1="${major ? 10 : 18}" x2="24"/>` + (major ? `<text x="11" y="${py - 3}" transform="rotate(-90 11 ${py - 3})">${Math.round(v)}</text>` : "");
+    }
+    rx.innerHTML = ox; ry.innerHTML = oy;
+  }
+  function drawGrid() {
+    const g = $("grid"); if (!g) return;
+    g.innerHTML = "";
+    if (!showGrid || !sheets[cur]) return;
+    const { w, h } = sheets[cur].source, step = niceStep(scale(), 28);
+    let s = "";
+    for (let x = 0; x <= w + 1e-6; x += step) s += `<line class="${Math.round(x / step) % 5 === 0 ? "major" : ""}" x1="${x}" y1="0" x2="${x}" y2="${h}"/>`;
+    for (let y = 0; y <= h + 1e-6; y += step) s += `<line class="${Math.round(y / step) % 5 === 0 ? "major" : ""}" x1="0" y1="${y}" x2="${w}" y2="${y}"/>`;
+    g.innerHTML = s;
   }
 
+  // ---------------------------------------------------------------- dibujo
   function render() {
     const sh = sheets[cur];
     svg.innerHTML = "";
     if (!sh) return;
     if (!view) fitView();
-    const W = sh.source.w, H = sh.source.h;
-    svg.setAttribute("viewBox", `${view.x} ${view.y} ${view.w} ${view.h}`);
-    const g = el("g", { transform: `translate(0 ${H}) scale(1 -1)`, id: "world" }, svg);
-    el("rect", { x: 0, y: 0, width: W, height: H, class: "sheet", fill: "#e9ecef", stroke: "#6b7280" }, g);
-    el("rect", { x: D.edge, y: D.edge, width: Math.max(0, W - 2 * D.edge), height: Math.max(0, H - 2 * D.edge), class: "sheet-usable", fill: "none", stroke: "#6b7280" }, g);
+    const W = sh.source.w, Hh = sh.source.h;
+    const defs = el("defs", {}, svg);
+    const pat = el("pattern", { id: "hatch", width: 24, height: 24, patternUnits: "userSpaceOnUse", patternTransform: "rotate(45)" }, defs);
+    el("rect", { width: 24, height: 24, fill: "#d1fae5", "fill-opacity": 0.55 }, pat);
+    el("line", { x1: 0, y1: 0, x2: 0, y2: 24, stroke: "#1b7f4b", "stroke-width": 3, "stroke-opacity": 0.35 }, pat);
+    const g = el("g", { transform: `translate(0 ${Hh}) scale(1 -1)`, id: "world" }, svg);
+    el("rect", { x: 0, y: 0, width: W, height: Hh, class: "sheet", fill: "#e9ecef", stroke: "#6b7280" }, g);
+    el("g", { id: "grid", class: "grid" }, g);
+    el("rect", { x: D.edge, y: D.edge, width: Math.max(0, W - 2 * D.edge), height: Math.max(0, Hh - 2 * D.edge), class: "sheet-usable", fill: "none", stroke: "#6b7280" }, g);
     const info = ev && ev.sheets[cur];
     if (info && info.offcut) {
       const o = info.offcut;
@@ -94,16 +159,15 @@
     const bad = new Set(info ? info.conflicts : []);
     sh.placements.forEach((p, i) => {
       if (!D.parts[p.key]) return;
-      const s = shapeFor(p.key, p.rotation);
+      const s = shapeFor(p.key, p.rotation), [fill, stroke] = colorOf[p.key] || PALETTE[0];
       const cls = "piece" + (bad.has(i) ? " bad" : "") + (sel.includes(i) ? " sel" : "") + (p.locked ? " locked" : "");
       const pg = el("g", { transform: `translate(${p.x} ${p.y})`, class: cls, "data-i": i }, g);
-      el("path", { d: s.d, "fill-rule": "evenodd", fill: "#bfdbfe", stroke: "#0f6fde" }, pg);
-      const t = el("title", {}, pg); t.textContent = D.parts[p.key].name + (p.locked ? " (bloqueada)" : "");
+      el("path", { d: s.d, "fill-rule": "evenodd", style: `fill:${fill};stroke:${stroke}` }, pg);
     });
     if (showOrder && info && info.plan && info.plan.order.length) {
       const pts = info.plan.order.filter((i) => sh.placements[i]).map((i) => { const b = bbox(sh.placements[i]); return [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2]; });
       el("polyline", { points: [[0, 0], ...pts].map((p) => p.join(",")).join(" "), class: "cut-path", fill: "none", stroke: "#d6336c" }, g);
-      const r = Math.max(W, H) / 160;
+      const r = Math.max(W, Hh) / 160;
       pts.forEach(([x, y], n) => {
         el("circle", { cx: x, cy: y, r, class: "cut-dot", fill: "#d6336c" }, g);
         const t = el("text", { x, y: -y, transform: "scale(1 -1)", class: "cut-num", "font-size": r * 1.2, "text-anchor": "middle", "dominant-baseline": "central", fill: "#fff" }, g);
@@ -120,7 +184,8 @@
         $("measure-out").textContent = `Distancia: ${fmt(dist)} mm · ΔX ${fmt(Math.abs(b[0] - measure.a[0]))} · ΔY ${fmt(Math.abs(b[1] - measure.a[1]))} mm`;
       }
     }
-    renderTabs(); renderSide();
+    el("rect", { id: "boxsel", class: "boxsel", x: 0, y: 0, width: 0, height: 0, visibility: "hidden" }, g);
+    applyView(); renderTabs(); renderSide();
   }
 
   function renderTabs() {
@@ -137,9 +202,14 @@
       if (info) label += ` · ${fmt(info.utilization)} %`;
       if (info && info.conflicts.length) label += " ⚠";
       b.textContent = label;
-      b.onclick = () => { cur = i; sel = []; fitView(); render(); };
+      b.onclick = () => { cur = i; sel = []; view = null; render(); };
       tabs.appendChild(b);
     });
+  }
+
+  function thumbSvg(key) {
+    const s = shapeFor(key, 0), [fill, stroke] = colorOf[key] || PALETTE[0], m = Math.max(s.w, s.h) * 0.08;
+    return `<svg viewBox="${-m} ${-m} ${s.w + 2 * m} ${s.h + 2 * m}" aria-hidden="true"><g transform="translate(0 ${s.h}) scale(1 -1)"><path d="${s.d}" fill-rule="evenodd" style="fill:${fill};stroke:${stroke};stroke-width:${Math.max(s.w, s.h) / 50}"/></g></svg>`;
   }
 
   function renderSide() {
@@ -152,7 +222,7 @@
       $("st-time").textContent = dur(ev.time_s);
       $("st-cut").textContent = `${fmt(ev.cut_m, 1)} m · ${ev.pierces} perf.`;
       const info = ev.sheets[cur];
-      $("st-sheet").textContent = info ? `${fmt(info.utilization)} % · ${dur(info.plan && info.plan.time_s)} · ${fmt(info.plan ? info.plan.cut_m : 0, 1)} m` : "—";
+      $("st-sheet").textContent = info ? `${fmt(info.utilization)} % · ${dur(info.plan && info.plan.time_s)}` : "—";
     }
     const ul = $("pending");
     ul.innerHTML = "";
@@ -163,38 +233,41 @@
       const li = document.createElement("li");
       const n = pend[k];
       const b = document.createElement("button");
-      b.type = "button"; b.className = "btn small-btn ghost";
-      b.textContent = n > 0 ? `${D.parts[k].name} · faltan ${n}` : `${D.parts[k].name} · sobran ${-n}`;
+      b.type = "button"; b.className = "thumb-btn";
+      b.innerHTML = thumbSvg(k) + `<span></span><span class="cnt"></span>`;
+      b.children[1].textContent = D.parts[k].name;
+      b.children[2].textContent = n > 0 ? `faltan ${n}` : `sobran ${-n}`;
+      b.title = n > 0 ? "Arrástrala a la chapa o púlsala para añadirla" : "Hay más piezas colocadas que las pedidas";
       b.disabled = !editable || n < 0;
-      b.onclick = () => addPiece(k);
+      b.addEventListener("pointerdown", (e) => startThumbDrag(e, k, b));
       li.appendChild(b); ul.appendChild(li);
     });
+    $("st-selcount").textContent = sel.length ? `${sel.length} seleccionada${sel.length > 1 ? "s" : ""}` : "";
     const sh = sheets[cur];
     const card = $("sel-card");
     card.hidden = !sel.length || !sh;
+    const allLocked = sh && sel.length && sel.every((i) => sh.placements[i] && sh.placements[i].locked);
+    $("btn-lock").setAttribute("aria-pressed", allLocked ? "true" : "false");
+    ["btn-rot", "btn-rot-free", "btn-dup", "btn-lock", "btn-magnet", "btn-del", "btn-zoom-sel"].forEach((id) => ($(id).disabled = !sel.length));
+    document.querySelectorAll("[data-align]").forEach((b) => (b.disabled = sel.length < 2));
+    $("btn-rot").disabled = $("btn-rot-free").disabled = !sel.length || !D.rotation;
     if (!sel.length || !sh) return;
     const p = sh.placements[sel[0]];
     if (!p) { sel = []; card.hidden = true; return; }
     $("sel-name").textContent = sel.length > 1 ? `${sel.length} piezas seleccionadas` : D.parts[p.key].name;
     const single = sel.length === 1;
     document.querySelectorAll("[data-single]").forEach((e) => (e.hidden = !single || !editable));
-    if (single) { $("sel-x").value = fmt(p.x, 1).replace(/\s/g, ""); $("sel-y").value = fmt(p.y, 1).replace(/\s/g, ""); $("sel-rot").value = p.rotation; }
+    if (single) { $("sel-x").value = String(Math.round(p.x * 10) / 10).replace(".", ","); $("sel-y").value = String(Math.round(p.y * 10) / 10).replace(".", ","); $("sel-rot").value = p.rotation; }
     const info = ev && ev.sheets[cur];
     const reasons = sel.map((i) => info && info.reasons[i]).filter(Boolean);
     $("sel-reason").textContent = reasons.length ? "⚠ " + [...new Set(reasons)].join(" · ") : "";
-    $("btn-lock").textContent = sel.every((i) => sh.placements[i].locked) ? "Desbloquear" : "Bloquear";
-    $("btn-rot").disabled = !D.rotation;
     const mv = $("sel-move");
     mv.innerHTML = "";
     sheets.forEach((s, i) => mv.add(new Option(`Chapa ${i + 1}`, i, false, i === cur)));
   }
 
   // ---------------------------------------------------------------- servidor
-  function scheduleCheck() {
-    setDirty(true);
-    clearTimeout(checkTimer);
-    checkTimer = setTimeout(check, 350);
-  }
+  function scheduleCheck() { setDirty(true); clearTimeout(checkTimer); checkTimer = setTimeout(check, 350); }
   async function post(url, extra = {}) {
     const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin",
       body: JSON.stringify({ sheets, ...extra }) });
@@ -203,35 +276,37 @@
     return data;
   }
   async function check() {
-    try { ev = await post(`/anidado/${D.id}/comprobar`); render(); }
-    catch (e) { $("save-state").textContent = e.message; }
+    try { ev = await post(`/anidado/${D.id}/comprobar`); render(); if (dirty) say("Cambios sin guardar"); }
+    catch (e) { say(e.message); }
   }
   async function save() {
-    $("save-state").textContent = "Guardando…";
+    say("Guardando…");
     try { ev = await post(`/anidado/${D.id}/guardar`); setDirty(false); window.location.reload(); }
-    catch (e) { $("save-state").textContent = e.message; }
+    catch (e) { say(e.message); }
   }
   async function op(name, extra = {}) {
-    $("save-state").textContent = "Calculando…";
+    say("Calculando…");
     try {
       const r = await post(`/anidado/${D.id}/operacion`, { op: name, sheet: cur, ...extra });
       snapshot();
       sheets = r.sheets; ev = r.eval;
       cur = Math.min(cur, sheets.length - 1);
       setDirty(true); render();
-    } catch (e) { $("save-state").textContent = e.message; }
+    } catch (e) { say(e.message); }
   }
 
   // ---------------------------------------------------------------- edición
-  function addPiece(key) {
+  function selected() { return sheets[cur] ? sel.map((i) => sheets[cur].placements[i]).filter(Boolean) : []; }
+  function addPiece(key, at) {
     const sh = sheets[cur];
-    if (!sh) return;
+    if (!sh || !editable) return;
     snapshot();
-    sh.placements.push({ key, x: D.edge, y: D.edge, rotation: 0 });
+    const s = shapeFor(key, 0);
+    const x = at ? Math.round((at[0] - s.w / 2) * 2) / 2 : D.edge, y = at ? Math.round((at[1] - s.h / 2) * 2) / 2 : D.edge;
+    sh.placements.push({ key, x, y, rotation: 0 });
     sel = [sh.placements.length - 1];
     render(); scheduleCheck();
   }
-  function selected() { return sel.map((i) => sheets[cur].placements[i]).filter(Boolean); }
   function rotateSel(delta) {
     if (!sel.length || !D.rotation) return;
     snapshot();
@@ -251,9 +326,24 @@
     sheets[cur].placements = sheets[cur].placements.filter((p, i) => !set.has(i) || p.locked);
     sel = []; render(); scheduleCheck();
   }
+  function duplicateSel() {
+    const ps = selected(); if (!ps.length) return;
+    snapshot();
+    const bs = ps.map(bbox), dx = Math.max(...bs.map((b) => b.x1)) - Math.min(...bs.map((b) => b.x0)) + D.gap + 1;
+    const start = sheets[cur].placements.length;
+    ps.forEach((p) => sheets[cur].placements.push({ key: p.key, x: p.x + dx, y: p.y, rotation: p.rotation }));
+    sel = ps.map((_, k) => start + k);
+    render(); scheduleCheck();
+  }
+  function toggleLock() {
+    const ps = selected(); if (!ps.length) return;
+    const lock = !ps.every((p) => p.locked);
+    snapshot(); ps.forEach((p) => { if (lock) p.locked = true; else delete p.locked; });
+    render(); setDirty(true);
+  }
   function align(side) {
     const ps = selected().filter((p) => !p.locked);
-    if (ps.length < 2) { $("save-state").textContent = "Selecciona dos o más piezas (Mayús + clic)."; return; }
+    if (ps.length < 2) { say("Selecciona dos o más piezas."); return; }
     snapshot();
     const bs = ps.map(bbox);
     const target = { izq: Math.min(...bs.map((b) => b.x0)), der: Math.max(...bs.map((b) => b.x1)),
@@ -268,30 +358,48 @@
     render(); scheduleCheck();
   }
 
-  // ---------------------------------------------------------------- ratón: mover, seleccionar, desplazar, zoom, medir
+  // ---------------------------------------------------------------- herramientas
+  const TOOL_NAMES = { select: "Seleccionar", hand: "Desplazar", measure: "Medir" };
+  function setTool(t) {
+    tool = t; measure = null; $("measure-out").textContent = t === "measure" ? "Pulsa dos puntos sobre la chapa." : "";
+    document.querySelectorAll("[data-tool]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.tool === t));
+    svg.classList.toggle("tool-hand", t === "hand"); svg.classList.toggle("tool-measure", t === "measure");
+    $("st-tool").textContent = TOOL_NAMES[t];
+    render();
+  }
+
+  // ---------------------------------------------------------------- ratón
   function toWorld(evt) {
     const pt = svg.createSVGPoint();
     pt.x = evt.clientX; pt.y = evt.clientY;
     return pt.matrixTransform($("world").getScreenCTM().inverse());
   }
   let drag = null;
+  let lastEmpty = null;
   svg.addEventListener("pointerdown", (e) => {
     if (!sheets[cur]) return;
     const w = toWorld(e);
-    if (tool === "medir") {
-      measure = !measure || measure.b ? { a: [w.x, w.y] } : { a: measure.a, b: [w.x, w.y] };
-      render(); return;
+    const panning = e.button === 1 || tool === "hand" || spaceDown;
+    if (panning) {
+      drag = { pan: true, s0: { x: e.clientX, y: e.clientY }, v0: { ...view }, k: 1 / scale() };
+      svg.classList.add("panning"); svg.setPointerCapture(e.pointerId); e.preventDefault(); return;
     }
+    if (e.button !== 0) return;
+    if (tool === "measure") { measure = !measure || measure.b ? { a: [w.x, w.y] } : { a: measure.a, b: [w.x, w.y] }; render(); return; }
     const g = e.target.closest(".piece");
+    const add = e.shiftKey || e.ctrlKey || e.metaKey;
     if (!g) {
-      if (!e.shiftKey) sel = [];
-      const s0 = { x: e.clientX, y: e.clientY };
-      drag = { pan: true, s0, v0: { ...view }, k: view.w / svg.getBoundingClientRect().width, moved: false };
-      svg.setPointerCapture(e.pointerId);
-      render(); return;
+      const now = Date.now();
+      if (lastEmpty && now - lastEmpty.t < 400 && Math.hypot(e.clientX - lastEmpty.x, e.clientY - lastEmpty.y) < 6) {
+        lastEmpty = null; fitView(); applyView(); return;      // doble clic en vacío: encajar la chapa
+      }
+      lastEmpty = { t: now, x: e.clientX, y: e.clientY };
+      if (!add) sel = [];
+      drag = { box: true, w0: [w.x, w.y], add, base: [...sel] };
+      svg.setPointerCapture(e.pointerId); render(); return;
     }
     const i = Number(g.dataset.i);
-    if (e.shiftKey) sel = sel.includes(i) ? sel.filter((j) => j !== i) : [...sel, i];
+    if (add) sel = sel.includes(i) ? sel.filter((j) => j !== i) : [...sel, i];
     else if (!sel.includes(i)) sel = [i];
     if (!editable) { render(); return; }
     const ps = selected().filter((p) => !p.locked);
@@ -301,58 +409,127 @@
     e.preventDefault();
   });
   svg.addEventListener("pointermove", (e) => {
-    if (tool === "medir" && measure && measure.a && !measure.b) {
-      const w = toWorld(e); measure.tmp = [w.x, w.y];
+    const w = toWorld(e);
+    const sh = sheets[cur];
+    if (sh) $("st-xy").textContent = `X ${fmt(w.x)} · Y ${fmt(w.y)} mm`;
+    const g = e.target.closest && e.target.closest(".piece");
+    const tip = $("tip");
+    if (g && !drag && sh && sh.placements[Number(g.dataset.i)]) {
+      const p = sh.placements[Number(g.dataset.i)];
+      const r = wrap.getBoundingClientRect();
+      tip.textContent = D.parts[p.key].name + (p.locked ? " · bloqueada" : "") + (p.rotation ? ` · ${p.rotation}°` : "");
+      tip.style.left = e.clientX - r.left + "px"; tip.style.top = e.clientY - r.top + "px"; tip.hidden = false;
+      $("st-hover").textContent = D.parts[p.key].name;
+    } else { tip.hidden = true; $("st-hover").textContent = ""; }
+    if (tool === "measure" && measure && measure.a && !measure.b) {
       const line = svg.querySelector(".measure");
       if (line) { line.setAttribute("x2", w.x); line.setAttribute("y2", w.y); }
+      $("measure-out").textContent = `Distancia: ${fmt(Math.hypot(w.x - measure.a[0], w.y - measure.a[1]))} mm`;
       return;
     }
     if (!drag) return;
     if (drag.pan) {
       view.x = drag.v0.x - (e.clientX - drag.s0.x) * drag.k;
       view.y = drag.v0.y - (e.clientY - drag.s0.y) * drag.k;
-      drag.moved = true;
-      svg.setAttribute("viewBox", `${view.x} ${view.y} ${view.w} ${view.h}`);
+      applyView(); return;
+    }
+    if (drag.box) {
+      const r = $("boxsel"), [x0, y0] = drag.w0;
+      r.setAttribute("x", Math.min(x0, w.x)); r.setAttribute("y", Math.min(y0, w.y));
+      r.setAttribute("width", Math.abs(w.x - x0)); r.setAttribute("height", Math.abs(w.y - y0));
+      r.setAttribute("visibility", "visible");
+      r.classList.toggle("crossing", w.x < x0);
+      drag.w1 = [w.x, w.y];
       return;
     }
-    const w = toWorld(e);
     const dx = Math.round((w.x - drag.w0.x) * 2) / 2, dy = Math.round((w.y - drag.w0.y) * 2) / 2;
     drag.moved = drag.moved || dx !== 0 || dy !== 0;
     drag.pieces.forEach(({ p, x0, y0 }) => { p.x = x0 + dx; p.y = y0 + dy; });
-    svg.querySelectorAll(".piece.sel").forEach((g) => {
-      const p = sheets[cur].placements[Number(g.dataset.i)];
-      g.setAttribute("transform", `translate(${p.x} ${p.y})`);
+    svg.querySelectorAll(".piece.sel").forEach((gg) => {
+      const p = sheets[cur].placements[Number(gg.dataset.i)];
+      gg.setAttribute("transform", `translate(${p.x} ${p.y})`);
     });
   });
   const endDrag = () => {
-    if (drag && !drag.pan && drag.moved) {
-      undo.push(drag.before); if (undo.length > 100) undo.shift(); redo.length = 0;
-      render(); scheduleCheck();
+    svg.classList.remove("panning");
+    if (drag && drag.box && drag.w1) {
+      const [ax, ay] = drag.w0, [bx, by] = drag.w1;
+      const x0 = Math.min(ax, bx), x1 = Math.max(ax, bx), y0 = Math.min(ay, by), y1 = Math.max(ay, by);
+      const crossing = bx < ax;   // de derecha a izquierda: lo que toca; de izquierda a derecha: lo que queda dentro
+      const hit = [];
+      sheets[cur].placements.forEach((p, i) => {
+        const b = bbox(p);
+        const inside = b.x0 >= x0 && b.x1 <= x1 && b.y0 >= y0 && b.y1 <= y1;
+        const touch = b.x0 <= x1 && b.x1 >= x0 && b.y0 <= y1 && b.y1 >= y0;
+        if (crossing ? touch : inside) hit.push(i);
+      });
+      sel = drag.add ? [...new Set([...drag.base, ...hit])] : hit;
+      drag = null; render(); return;
     }
+    if (drag && drag.pieces && drag.moved) {
+      undo.push(drag.before); if (undo.length > 100) undo.shift(); redo.length = 0;
+      drag = null; render(); scheduleCheck(); return;
+    }
+    if (drag && drag.box) render();
     drag = null;
   };
   svg.addEventListener("pointerup", endDrag);
   svg.addEventListener("pointercancel", endDrag);
-  svg.addEventListener("wheel", (e) => {
+  svg.addEventListener("pointerleave", () => { $("tip").hidden = true; });
+  svg.addEventListener("auxclick", (e) => e.preventDefault());
+  wrap.addEventListener("wheel", (e) => {
     e.preventDefault();
     const r = svg.getBoundingClientRect();
     const fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height;
-    const k = e.deltaY > 0 ? 1.15 : 1 / 1.15;
-    zoom(k, fx, fy);
+    const k = Math.exp(Math.max(-1, Math.min(1, e.deltaY / (e.deltaMode ? 3 : 120))) * 0.18);
+    zoomAt(k, fx, fy);
   }, { passive: false });
-  function zoom(k, fx = 0.5, fy = 0.5) {
-    const nw = view.w * k, nh = view.h * k;
-    view.x += (view.w - nw) * fx; view.y += (view.h - nh) * fy; view.w = nw; view.h = nh;
-    svg.setAttribute("viewBox", `${view.x} ${view.y} ${view.w} ${view.h}`);
+  // arrastrar miniaturas a la chapa (con puntero: funciona con ratón, lápiz y pantalla táctil)
+  function startThumbDrag(e, key, btn) {
+    if (!editable || btn.disabled || e.button !== 0) return;
+    e.preventDefault();
+    const ghost = document.createElement("div");
+    ghost.className = "drag-ghost"; ghost.innerHTML = thumbSvg(key); ghost.hidden = true;
+    document.body.appendChild(ghost);
+    const x0 = e.clientX, y0 = e.clientY;
+    let moved = false;
+    const move = (ev) => {
+      if (!moved && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 5) return;
+      moved = true; ghost.hidden = false;
+      ghost.style.left = ev.clientX + "px"; ghost.style.top = ev.clientY + "px";
+      const r = wrap.getBoundingClientRect();
+      wrap.classList.toggle("drop-target", ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom);
+    };
+    const up = (ev) => {
+      document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up);
+      ghost.remove(); wrap.classList.remove("drop-target");
+      if (!moved) { addPiece(key); return; }
+      const r = wrap.getBoundingClientRect();
+      if (ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom) {
+        const w = toWorld(ev); addPiece(key, [w.x, w.y]);
+      }
+    };
+    document.addEventListener("pointermove", move); document.addEventListener("pointerup", up);
   }
+  new ResizeObserver(() => { if (!view) return; const a = aspect(); view.h = view.w * a; applyView(); }).observe(wrap);
 
   document.addEventListener("keydown", (e) => {
     if (e.target.closest("input, select, textarea")) return;
-    const mod = e.ctrlKey || e.metaKey;
-    if (mod && e.key.toLowerCase() === "z") { restore(e.shiftKey ? redo : undo, e.shiftKey ? undo : redo); e.preventDefault(); return; }
-    if (mod && e.key.toLowerCase() === "y") { restore(redo, undo); e.preventDefault(); return; }
-    if (mod && e.key.toLowerCase() === "a" && sheets[cur]) { sel = sheets[cur].placements.map((_, i) => i); render(); e.preventDefault(); return; }
+    const mod = e.ctrlKey || e.metaKey, key = e.key.toLowerCase();
+    if (e.key === " ") { spaceDown = true; svg.classList.add("tool-hand"); e.preventDefault(); return; }
+    if (mod && key === "z") { restore(e.shiftKey ? redo : undo, e.shiftKey ? undo : redo); e.preventDefault(); return; }
+    if (mod && key === "y") { restore(redo, undo); e.preventDefault(); return; }
+    if (mod && key === "a" && sheets[cur]) { sel = sheets[cur].placements.map((_, i) => i); render(); e.preventDefault(); return; }
+    if (mod && key === "d") { if (editable) duplicateSel(); e.preventDefault(); return; }
+    if (mod) return;
     if (e.key === "Escape") { sel = []; measure = null; render(); return; }
+    if (key === "v") { setTool("select"); return; }
+    if (key === "h") { setTool("hand"); return; }
+    if (key === "m") { setTool("measure"); return; }
+    if (key === "f") { fitView(); applyView(); return; }
+    if (key === "g") { $("btn-grid").click(); return; }
+    if (e.key === "+" || e.key === "=") { zoomAt(1 / 1.25); return; }
+    if (e.key === "-") { zoomAt(1.25); return; }
     if (!editable || !sel.length) return;
     const step = e.shiftKey ? 10 : 1;
     const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] };
@@ -360,40 +537,49 @@
       snapshot();
       selected().forEach((p) => { if (!p.locked) { p.x += moves[e.key][0]; p.y += moves[e.key][1]; } });
       render(); scheduleCheck(); e.preventDefault();
-    } else if (e.key === "r" || e.key === "R") { rotateSel(e.shiftKey ? -90 : 90); e.preventDefault(); }
+    } else if (key === "r") { rotateSel(e.shiftKey ? -90 : 90); e.preventDefault(); }
+    else if (key === "l") { toggleLock(); }
     else if (e.key === "Delete" || e.key === "Backspace") { deleteSel(); e.preventDefault(); }
   });
+  document.addEventListener("keyup", (e) => { if (e.key === " ") { spaceDown = false; svg.classList.toggle("tool-hand", tool === "hand"); } });
 
   // ---------------------------------------------------------------- botones
   const on = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
+  document.querySelectorAll("[data-tool]").forEach((b) => (b.onclick = () => setTool(b.dataset.tool)));
   on("btn-rot", () => rotateSel(90));
+  on("btn-rot-free", () => {
+    if (!sel.length) return;
+    const v = window.prompt("Ángulo a girar (grados, sentido antihorario; negativo = horario):", "45");
+    const a = v == null ? NaN : parseFloat(v.replace(",", "."));
+    if (Number.isFinite(a) && a) rotateSel(a);
+  });
+  on("btn-dup", duplicateSel);
   on("btn-del", deleteSel);
+  on("btn-lock", toggleLock);
   on("btn-undo", () => restore(undo, redo));
   on("btn-redo", () => restore(redo, undo));
-  on("btn-zoom-in", () => { zoom(1 / 1.3); });
-  on("btn-zoom-out", () => { zoom(1.3); });
-  on("btn-fit", () => { fitView(); render(); });
+  on("btn-zoom-in", () => zoomAt(1 / 1.3));
+  on("btn-zoom-out", () => zoomAt(1.3));
+  on("btn-fit", () => { fitView(); applyView(); });
+  on("btn-zoom-sel", fitSelection);
   on("btn-compact", () => op("compactar"));
   on("btn-pending", () => op("pendientes"));
   on("btn-reflow", () => op("recolocar"));
   on("btn-magnet", () => op("iman", { selected: sel }));
-  on("btn-lock", () => {
-    const ps = selected(); const lock = !ps.every((p) => p.locked);
-    snapshot(); ps.forEach((p) => { if (lock) p.locked = true; else delete p.locked; });
-    render(); setDirty(true);
-  });
   on("btn-order", () => { showOrder = !showOrder; $("btn-order").setAttribute("aria-pressed", showOrder); render(); });
-  on("btn-measure", () => {
-    tool = tool === "medir" ? "mover" : "medir"; measure = null; $("measure-out").textContent = tool === "medir" ? "Pulsa dos puntos sobre la chapa." : "";
-    $("btn-measure").setAttribute("aria-pressed", tool === "medir"); svg.classList.toggle("measuring", tool === "medir"); render();
+  on("btn-grid", () => { showGrid = !showGrid; $("btn-grid").setAttribute("aria-pressed", showGrid); drawGrid(); });
+  on("btn-full", () => {
+    const c = $("nest-canvas");
+    if (document.fullscreenElement) document.exitFullscreen(); else if (c.requestFullscreen) c.requestFullscreen();
   });
+  document.addEventListener("fullscreenchange", () => setTimeout(() => { fitView(); applyView(); }, 50));
   document.querySelectorAll("[data-align]").forEach((b) => (b.onclick = () => align(b.dataset.align)));
   on("btn-apply-pos", () => {
     const p = selected()[0]; if (!p) return;
     const x = parseFloat($("sel-x").value.replace(",", ".")), y = parseFloat($("sel-y").value.replace(",", "."));
     const r = parseFloat($("sel-rot").value.replace(",", "."));
-    if (![x, y, r].every(Number.isFinite)) { $("save-state").textContent = "Revisa X, Y y ángulo."; return; }
-    if (r !== p.rotation && !D.rotation) { $("save-state").textContent = "Este anidado no permite girar piezas."; return; }
+    if (![x, y, r].every(Number.isFinite)) { say("Revisa X, Y y ángulo."); return; }
+    if (r !== p.rotation && !D.rotation) { say("Este anidado no permite girar piezas."); return; }
     snapshot(); p.x = x; p.y = y; p.rotation = ((Math.round(r * 10) / 10) % 360 + 360) % 360;
     render(); scheduleCheck();
   });
@@ -406,17 +592,17 @@
     sheets[cur].placements = sheets[cur].placements.filter((p, i) => !set.has(i) || p.locked);
     moving.forEach((p) => { p.x = D.edge; p.y = D.edge; sheets[to].placements.push(p); });
     cur = to; sel = moving.map((_, k) => sheets[to].placements.length - moving.length + k);
-    fitView(); render(); scheduleCheck();
+    view = null; render(); scheduleCheck();
   };
   on("btn-add-sheet", () => {
     snapshot();
     const v = $("new-sheet-format") ? $("new-sheet-format").value.split("x").map(Number) : [D.format.w, D.format.h];
     sheets.push({ source: { kind: "formato", w: v[0], h: v[1] }, placements: [] });
-    cur = sheets.length - 1; sel = []; fitView(); render(); scheduleCheck();
+    cur = sheets.length - 1; sel = []; view = null; render(); scheduleCheck();
   });
   on("btn-del-sheet", () => {
-    if (!sheets[cur] || sheets[cur].placements.length) { $("save-state").textContent = "Solo se pueden quitar chapas vacías."; return; }
-    snapshot(); sheets.splice(cur, 1); cur = Math.max(0, cur - 1); fitView(); render(); scheduleCheck();
+    if (!sheets[cur] || sheets[cur].placements.length) { say("Solo se pueden quitar chapas vacías."); return; }
+    snapshot(); sheets.splice(cur, 1); cur = Math.max(0, cur - 1); view = null; render(); scheduleCheck();
   });
   on("btn-save", save);
   document.querySelectorAll("[data-confirm-dirty]").forEach((b) => b.addEventListener("click", (e) => {
