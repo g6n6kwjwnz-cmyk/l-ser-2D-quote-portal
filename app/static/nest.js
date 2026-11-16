@@ -29,7 +29,9 @@
   let checkTimer = null;
   let view = null;          // viewBox {x, y, w, h} en coordenadas SVG (eje Y hacia abajo, chapa volteada)
   let tool = "select";      // select | hand | measure
-  let showOrder = false, showGrid = false;
+  let showOrder = false, showGrid = false, showLabels = false;
+  let clipboard = null;     // {items:[{key,rotation,dx,dy}], w, h}
+  let lastWorld = null;     // última posición del puntero sobre la chapa (para pegar)
   let measure = null;
   let spaceDown = false;
   const undo = [], redo = [];
@@ -166,6 +168,20 @@
       const pg = el("g", { transform: `translate(${p.x} ${p.y})`, class: cls, "data-i": i }, g);
       el("path", { d: s.d, "fill-rule": "evenodd", style: `fill:${fill};stroke:${stroke}` }, pg);
     });
+    if (showLabels) {
+      const minFs = Math.max(W, Hh) / 400;   // más pequeño no se lee ni con zoom: se omite
+      sh.placements.forEach((p) => {
+        if (!D.parts[p.key]) return;
+        const b = bbox(p), bw = b.x1 - b.x0, bh = b.y1 - b.y0;
+        let name = D.parts[p.key].name.replace(/\.(dxf|dwg)$/i, "");
+        if (name.length > 16) name = name.slice(0, 15) + "…";
+        const fs = Math.min(bh / 3, (bw * 0.9) / (name.length * 0.58), 40);
+        if (fs < minFs) return;
+        const t = el("text", { x: (b.x0 + b.x1) / 2, y: -(b.y0 + b.y1) / 2, transform: "scale(1 -1)", class: "piece-label", "font-size": fs,
+          "text-anchor": "middle", "dominant-baseline": "central" }, g);
+        t.textContent = name;
+      });
+    }
     if (showOrder && info && info.plan && info.plan.order.length) {
       const pts = info.plan.order.filter((i) => sh.placements[i]).map((i) => { const b = bbox(sh.placements[i]); return [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2]; });
       el("polyline", { points: [[0, 0], ...pts].map((p) => p.join(",")).join(" "), class: "cut-path", fill: "none", stroke: "#d6336c" }, g);
@@ -250,9 +266,13 @@
     card.hidden = !sel.length || !sh;
     const allLocked = sh && sel.length && sel.every((i) => sh.placements[i] && sh.placements[i].locked);
     $("btn-lock").setAttribute("aria-pressed", allLocked ? "true" : "false");
-    ["btn-rot", "btn-rot-free", "btn-dup", "btn-lock", "btn-magnet", "btn-del", "btn-zoom-sel"].forEach((id) => ($(id).disabled = !sel.length));
-    document.querySelectorAll("[data-align]").forEach((b) => (b.disabled = sel.length < 2));
-    $("btn-rot").disabled = $("btn-rot-free").disabled = !sel.length || !D.rotation;
+    ["btn-rot", "btn-rot-ccw", "btn-rot-180", "btn-rot-free", "btn-dup", "btn-copy", "btn-array", "btn-same", "btn-lock", "btn-magnet", "btn-del", "btn-zoom-sel"]
+      .forEach((id) => { if ($(id)) $(id).disabled = !sel.length; });
+    document.querySelectorAll("[data-align]").forEach((b) => (b.disabled = sel.length < (b.dataset.align.startsWith("repartir") ? 3 : 2)));
+    ["btn-rot", "btn-rot-ccw", "btn-rot-free"].forEach((id) => { if ($(id)) $(id).disabled = !sel.length || !D.rotation; });
+    if ($("btn-rot-180")) $("btn-rot-180").disabled = !sel.length || !D.rotation;
+    if ($("btn-paste")) $("btn-paste").disabled = !clipboard;
+    if (!sel.length && $("array-form")) $("array-form").hidden = true;
     if (!sel.length || !sh) return;
     const p = sh.placements[sel[0]];
     if (!p) { sel = []; card.hidden = true; return; }
@@ -345,9 +365,17 @@
   }
   function align(side) {
     const ps = selected().filter((p) => !p.locked);
+    if (side.startsWith("repartir")) { distribute(ps, side === "repartir-x" ? "x" : "y"); return; }
     if (ps.length < 2) { say("Selecciona dos o más piezas."); return; }
     snapshot();
     const bs = ps.map(bbox);
+    if (side.startsWith("centro")) {
+      const ax = side === "centro-x";
+      const c = ax ? (Math.min(...bs.map((b) => b.x0)) + Math.max(...bs.map((b) => b.x1))) / 2
+        : (Math.min(...bs.map((b) => b.y0)) + Math.max(...bs.map((b) => b.y1))) / 2;
+      ps.forEach((p, i) => { const b = bs[i]; if (ax) p.x = Math.round((p.x + c - (b.x0 + b.x1) / 2) * 2) / 2; else p.y = Math.round((p.y + c - (b.y0 + b.y1) / 2) * 2) / 2; });
+      render(); scheduleCheck(); return;
+    }
     const target = { izq: Math.min(...bs.map((b) => b.x0)), der: Math.max(...bs.map((b) => b.x1)),
       abajo: Math.min(...bs.map((b) => b.y0)), arriba: Math.max(...bs.map((b) => b.y1)) }[side];
     ps.forEach((p, i) => {
@@ -359,6 +387,120 @@
     });
     render(); scheduleCheck();
   }
+
+  // reparte las piezas con el mismo hueco entre ellas, sin mover la primera ni la última
+  function distribute(ps, axis) {
+    if (ps.length < 3) { say("Selecciona tres o más piezas para repartir."); return; }
+    snapshot();
+    const a0 = axis === "x" ? "x0" : "y0", a1 = axis === "x" ? "x1" : "y1";
+    const items = ps.map((p) => ({ p, b: bbox(p) })).sort((u, v) => u.b[a0] - v.b[a0]);
+    const span = items[items.length - 1].b[a1] - items[0].b[a0];
+    const sizes = items.reduce((t, it) => t + it.b[a1] - it.b[a0], 0);
+    const gap = (span - sizes) / (items.length - 1);
+    let pos = items[0].b[a0];
+    items.forEach((it) => {
+      const d = pos - it.b[a0];
+      if (axis === "x") it.p.x = Math.round((it.p.x + d) * 10) / 10; else it.p.y = Math.round((it.p.y + d) * 10) / 10;
+      pos += it.b[a1] - it.b[a0] + gap;
+    });
+    if (gap < D.gap) say(`Atención: el hueco repartido (${fmt(gap)} mm) es menor que la separación de ${fmt(D.gap)} mm.`);
+    render(); scheduleCheck();
+  }
+  function groupBox(ps) {
+    const bs = ps.map(bbox);
+    return { x0: Math.min(...bs.map((b) => b.x0)), y0: Math.min(...bs.map((b) => b.y0)), x1: Math.max(...bs.map((b) => b.x1)), y1: Math.max(...bs.map((b) => b.y1)) };
+  }
+  function copySel() {
+    const ps = selected(); if (!ps.length) return;
+    const g = groupBox(ps);
+    clipboard = { items: ps.map((p) => ({ key: p.key, rotation: p.rotation, dx: p.x - g.x0, dy: p.y - g.y0 })), w: g.x1 - g.x0, h: g.y1 - g.y0 };
+    say(`${ps.length} pieza${ps.length > 1 ? "s" : ""} copiada${ps.length > 1 ? "s" : ""}. Pega con Ctrl+V (también en otra chapa).`);
+    renderSide();
+  }
+  function paste(at) {
+    const sh = sheets[cur];
+    if (!clipboard || !sh || !editable) return;
+    snapshot();
+    let x0 = D.edge, y0 = D.edge;
+    if (at) { x0 = Math.round((at[0] - clipboard.w / 2) * 2) / 2; y0 = Math.round((at[1] - clipboard.h / 2) * 2) / 2; }
+    const start = sh.placements.length;
+    clipboard.items.forEach((c) => sh.placements.push({ key: c.key, rotation: c.rotation, x: x0 + c.dx, y: y0 + c.dy }));
+    sel = clipboard.items.map((_, k) => start + k);
+    render(); scheduleCheck();
+  }
+  function makeArray(rows, cols, extra) {
+    const ps = selected(); const sh = sheets[cur];
+    if (!ps.length || !sh) return;
+    rows = Math.max(1, Math.min(50, rows | 0)); cols = Math.max(1, Math.min(50, cols | 0));
+    if (rows * cols * ps.length > 1000) { say("Demasiadas copias: como máximo 1000 piezas por matriz."); return; }
+    if (rows * cols === 1) return;
+    snapshot();
+    const g = groupBox(ps), sx = g.x1 - g.x0 + D.gap + extra + 0.5, sy = g.y1 - g.y0 + D.gap + extra + 0.5;
+    const out = sel.slice();
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      if (!r && !c) continue;
+      ps.forEach((p) => { sh.placements.push({ key: p.key, rotation: p.rotation, x: Math.round((p.x + c * sx) * 10) / 10, y: Math.round((p.y + r * sy) * 10) / 10 }); out.push(sh.placements.length - 1); });
+    }
+    sel = out; render(); scheduleCheck();
+    say("Matriz creada. Las piezas que no quepan en la chapa salen en rojo.");
+  }
+  function selectSame() {
+    const sh = sheets[cur]; if (!sh || !sel.length) return;
+    const keys = new Set(selected().map((p) => p.key));
+    sel = sh.placements.map((p, i) => (keys.has(p.key) ? i : -1)).filter((i) => i >= 0);
+    render();
+  }
+  function duplicateSheet() {
+    const sh = sheets[cur]; if (!sh || !editable) return;
+    if (!sh.placements.length) { say("La chapa está vacía."); return; }
+    snapshot();
+    const copy = clone(sh);
+    if (copy.source.kind === "retal") copy.source = { kind: "formato", w: copy.source.w, h: copy.source.h };
+    copy.placements.forEach((p) => delete p.locked);
+    sheets.splice(cur + 1, 0, copy);
+    cur += 1; sel = []; view = null; render(); scheduleCheck();
+    say("Chapa duplicada. Si sobran piezas, aparecen en «Pendientes» como «sobran».");
+  }
+  const nudge = () => { const v = parseFloat(String($("nudge") ? $("nudge").value : "1").replace(",", ".")); return Number.isFinite(v) && v > 0 ? Math.min(v, 500) : 1; };
+
+  // menú contextual (clic derecho)
+  const ctx = $("ctx-menu");
+  let ctxAt = null;
+  function hideCtx() { if (ctx) ctx.hidden = true; }
+  function showCtx(e) {
+    if (!ctx || !editable) return;
+    const r = wrap.getBoundingClientRect();
+    ctx.querySelectorAll("[data-act]").forEach((b) => { const t = $(b.dataset.act); b.disabled = !t || t.disabled; });
+    ctx.hidden = false;
+    const mw = ctx.offsetWidth, mh = ctx.offsetHeight;
+    ctx.style.left = Math.max(4, Math.min(e.clientX - r.left, r.width - mw - 4)) + "px";
+    ctx.style.top = Math.max(4, Math.min(e.clientY - r.top, r.height - mh - 4)) + "px";
+    const first = ctx.querySelector("button:not(:disabled)"); if (first) first.focus({ preventScroll: true });
+  }
+  if (ctx) {
+    ctx.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-act]"); if (!b || b.disabled) return;
+      hideCtx();
+      if (b.dataset.act === "btn-paste") { paste(ctxAt); return; }
+      const t = $(b.dataset.act); if (t) t.click();
+    });
+    ctx.addEventListener("keydown", (e) => {
+      const items = [...ctx.querySelectorAll("button:not(:disabled)")], i = items.indexOf(document.activeElement);
+      if (e.key === "ArrowDown") { items[(i + 1) % items.length].focus(); e.preventDefault(); }
+      if (e.key === "ArrowUp") { items[(i - 1 + items.length) % items.length].focus(); e.preventDefault(); }
+      if (e.key === "Escape") { hideCtx(); e.stopPropagation(); }
+    });
+    document.addEventListener("pointerdown", (e) => { if (!ctx.hidden && !e.target.closest("#ctx-menu")) hideCtx(); });
+    wrap.addEventListener("wheel", hideCtx, { passive: true });
+  }
+  svg.addEventListener("contextmenu", (e) => {
+    if (!editable || !sheets[cur]) return;
+    e.preventDefault();
+    const g = e.target.closest(".piece");
+    if (g) { const i = Number(g.dataset.i); if (!sel.includes(i)) { sel = [i]; render(); } }
+    const w = toWorld(e); ctxAt = [w.x, w.y];
+    showCtx(e);
+  });
 
   // ---------------------------------------------------------------- herramientas
   const TOOL_NAMES = { select: "Seleccionar", hand: "Desplazar", measure: "Medir" };
@@ -413,7 +555,7 @@
   svg.addEventListener("pointermove", (e) => {
     const w = toWorld(e);
     const sh = sheets[cur];
-    if (sh) $("st-xy").textContent = `X ${fmt(w.x)} · Y ${fmt(w.y)} mm`;
+    if (sh) { $("st-xy").textContent = `X ${fmt(w.x)} · Y ${fmt(w.y)} mm`; lastWorld = [w.x, w.y]; }
     const g = e.target.closest && e.target.closest(".piece");
     const tip = $("tip");
     if (g && !drag && sh && sh.placements[Number(g.dataset.i)]) {
@@ -477,7 +619,7 @@
   };
   svg.addEventListener("pointerup", endDrag);
   svg.addEventListener("pointercancel", endDrag);
-  svg.addEventListener("pointerleave", () => { $("tip").hidden = true; });
+  svg.addEventListener("pointerleave", () => { $("tip").hidden = true; lastWorld = null; });
   svg.addEventListener("auxclick", (e) => e.preventDefault());
   wrap.addEventListener("wheel", (e) => {
     e.preventDefault();
@@ -524,8 +666,11 @@
     if (mod && key === "y") { restore(redo, undo); e.preventDefault(); return; }
     if (mod && key === "a" && sheets[cur]) { sel = sheets[cur].placements.map((_, i) => i); render(); e.preventDefault(); return; }
     if (mod && key === "d") { if (editable) duplicateSel(); e.preventDefault(); return; }
+    if (mod && key === "c") { if (sel.length) { copySel(); e.preventDefault(); } return; }
+    if (mod && key === "v") { if (clipboard && editable) { paste(lastWorld); e.preventDefault(); } return; }
     if (mod) return;
-    if (e.key === "Escape") { sel = []; measure = null; render(); return; }
+    if (e.key === "Escape") { hideCtx(); sel = []; measure = null; render(); return; }
+    if (key === "n") { $("btn-labels").click(); return; }
     if (key === "v") { setTool("select"); return; }
     if (key === "h") { setTool("hand"); return; }
     if (key === "m") { setTool("measure"); return; }
@@ -534,7 +679,8 @@
     if (e.key === "+" || e.key === "=") { zoomAt(1 / 1.25); return; }
     if (e.key === "-") { zoomAt(1.25); return; }
     if (!editable || !sel.length) return;
-    const step = e.shiftKey ? 10 : 1;
+    if (key === "a" && e.shiftKey) { selectSame(); return; }
+    const step = nudge() * (e.shiftKey ? 10 : 1);
     const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] };
     if (moves[e.key]) {
       snapshot();
@@ -557,6 +703,18 @@
     if (Number.isFinite(a) && a) rotateSel(a);
   });
   on("btn-dup", duplicateSel);
+  on("btn-rot-ccw", () => rotateSel(-90));
+  on("btn-rot-180", () => rotateSel(180));
+  on("btn-copy", copySel);
+  on("btn-paste", () => paste(null));
+  on("btn-same", selectSame);
+  on("btn-dup-sheet", duplicateSheet);
+  on("btn-array", () => { const f = $("array-form"); if (!f || !sel.length) return; f.hidden = !f.hidden; if (!f.hidden) $("arr-rows").focus(); });
+  on("btn-array-go", () => {
+    const ex = parseFloat(String($("arr-gap").value).replace(",", "."));
+    makeArray(parseInt($("arr-rows").value, 10), parseInt($("arr-cols").value, 10), Number.isFinite(ex) && ex > 0 ? Math.min(ex, 1000) : 0);
+  });
+  on("btn-labels", () => { showLabels = !showLabels; $("btn-labels").setAttribute("aria-pressed", showLabels); render(); });
   on("btn-del", deleteSel);
   on("btn-lock", toggleLock);
   on("btn-undo", () => restore(undo, redo));

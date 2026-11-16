@@ -269,3 +269,19 @@ kbd { font: .8em ui-monospace, monospace; border: 1px solid var(--border); borde
 .drag-ghost svg { width: 100%; height: 100%; }
 .cad-stage .svg-wrap.drop-target { outline: 3px dashed var(--primary); outline-offset: -3px; }
 .thumb-btn { touch-action: none; }
+
+/* editor de anidado: menú contextual, nombres, matriz */
+.ctx-menu { position: absolute; z-index: 30; min-width: 230px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 28px rgb(0 0 0 / .18); padding: .3rem; display: flex; flex-direction: column; }
+.ctx-menu[hidden] { display: none; }
+.ctx-menu button { display: flex; align-items: center; gap: .55rem; width: 100%; border: 0; background: transparent; color: inherit; font: inherit; font-size: .88rem; text-align: left; padding: .4rem .55rem; border-radius: 6px; cursor: pointer; }
+.ctx-menu button:hover:not(:disabled), .ctx-menu button:focus-visible { background: var(--surface-2); outline: none; }
+.ctx-menu button:disabled { opacity: .4; cursor: default; }
+.ctx-menu button.danger { color: var(--danger); }
+.ctx-menu kbd { margin-left: auto; font-size: .72rem; color: var(--muted); }
+.ctx-menu .ico { width: 16px; height: 16px; }
+.ctx-menu hr { border: 0; border-top: 1px solid var(--border); margin: .25rem .2rem; }
+#nest-svg .piece-label { fill: #111827; paint-order: stroke; stroke: rgb(255 255 255 / .85); stroke-width: .25em; pointer-events: none; font-weight: 600; font-family: system-ui, sans-serif; }
+.array-form { border-top: 1px solid var(--border); margin-top: .6rem; padding-top: .5rem; }
+.array-form[hidden] { display: none; }
+.array-form h3 { font-size: .9rem; margin: 0 0 .35rem; }
+input.nudge { width: 5.5rem; display: inline-block; margin-left: .35rem; }

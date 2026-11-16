@@ -33,5 +33,17 @@
   'sheet-del': 'M3 5h18v14H3zM9 12h6',
   'back': 'M3 12a9 9 0 109-9 9.7 9.7 0 00-6.7 2.8L3 8M3 3v5h5',
   'check': 'M4 12l5 5L20 6',
+  'rotate-ccw': 'M4 12a8 8 0 102.4-5.7M4 4v5h5',
+  'rotate-180': 'M5 12a7 7 0 0114 0M19 12l-3-3M19 12l3-3M19 16a7 7 0 01-14 0',
+  'copy': 'M8 8h12v12H8zM16 8V4H4v12h4',
+  'paste': 'M9 4h6v3H9zM15 5h3v16H6V5h3M9 12h6M9 16h4',
+  'array': 'M3 3h5v5H3zM10 3h5v5h-5zM17 3h4v5h-4zM3 10h5v5H3zM10 10h5v5h-5zM3 17h5v4H3z',
+  'dist-h': 'M3 3v18M21 3v18M8 8h3v8H8zM13 8h3v8h-3z',
+  'dist-v': 'M3 3h18M3 21h18M8 8h8v3H8zM8 13h8v3H8z',
+  'center-h': 'M12 3v18M7 6h10v4H7zM9 14h6v4H9z',
+  'center-v': 'M3 12h18M6 7h4v10H6zM14 9h4v6h-4z',
+  'select-same': 'M3 3h7v7H3zM14 14h7v7h-7zM14 3h7v7h-7zM5.5 17.5h2',
+  'label': 'M3 7l4-4h14v18H7l-4-4zM10 9h7M10 13h5',
+  'sheet-dup': 'M7 7h14v12H7zM3 15V3h14',
 } %}
 {% macro icon(name, cls='') %}<svg class="ico {{ cls }}" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="{{ ICONS[name] }}"/></svg>{% endmacro %}
