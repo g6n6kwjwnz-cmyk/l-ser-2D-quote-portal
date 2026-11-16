@@ -152,7 +152,8 @@ def optimize_nest(db: Session, nest_obj: Nest, priority: str, budget: float, for
                       "offcut_m2": round(sc["biggest_offcut_mm2"] / 1e6, 3), "format": lb["format"],
                       "last_format": lb.get("ultima_en"),
                       "strategy": f"{ORDERS_LABEL.get(lb['order'], lb['order'])}, llenado hacia "
-                                  f"{'la izquierda' if lb['gravity'] == 'x' else 'abajo'}"})
+                                  f"{'la izquierda' if lb['gravity'] == 'x' else 'abajo'}"
+                                  f"{', giros de 90°' if lb.get('giros') == 90 else ''}"})
     opts["alternatives"] = saved
     opts["tried"] = len(alts)
     nest_obj.options = opts

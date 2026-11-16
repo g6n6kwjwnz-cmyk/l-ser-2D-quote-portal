@@ -434,7 +434,7 @@ def _shrink_last_sheet(items, res: NestResult, formats, gap, edge, kw, min_side,
             continue
         try:
             r = nest(sub, fw, fh, gap, edge, rotations=kw["rotations"], order=kw["order"], gravity=kw["gravity"],
-                     max_sheets=1, item_rotations=item_rotations, deadline=time.time() + 10, stop_on_unplaced=True)
+                     max_sheets=1, item_rotations=item_rotations, deadline=time.time() + 4, stop_on_unplaced=True)
         except NestTimeout:
             continue
         if r.unplaced or len(r.sheets) != 1:
@@ -458,16 +458,24 @@ def optimize(items: list[NestItem], formats: list[tuple[float, float]], gap: flo
     from concurrent.futures import ProcessPoolExecutor, as_completed
 
     deadline = time.time() + time_budget
+    # Giros finos (45°/15°) multiplican el cálculo: primero se resuelve todo con giros de 90° (rápido, garantiza
+    # propuestas dentro del tiempo) y después se prueban los giros finos mientras quede tiempo.
+    coarse = tuple(r for r in rotations if r % 90 == 0) or rotations[:1]
+    rot_sets = [coarse] if len(rotations) <= 4 else [coarse, rotations]
     tasks = []
-    for fw, fh in formats:
-        for order in ("area", "envolvente", "lado_largo", "perimetro", "ancho"):
-            for gravity in ("x", "y"):
-                kw = dict(rotations=rotations, order=order, gravity=gravity, item_rotations=item_rotations,
-                          stock=stock_factory() if stock_factory else None, deadline=deadline)
-                label = {"format": [fw, fh], "order": order, "gravity": gravity}
-                tasks.append((items, fw, fh, gap, edge, kw, min_side, priority, label))
-    # primero las estrategias habituales en el primer formato
-    tasks.sort(key=lambda t: (t[8]["order"] != "area", t[8]["gravity"] != "x"))
+    for rs in rot_sets:
+        for fw, fh in formats:
+            for order in ("area", "envolvente", "lado_largo", "perimetro", "ancho"):
+                for gravity in ("x", "y"):
+                    irs = None
+                    if item_rotations:
+                        irs = {k: tuple(r for r in v if r in rs) or (0,) for k, v in item_rotations.items()}
+                    kw = dict(rotations=rs, order=order, gravity=gravity, item_rotations=irs,
+                              stock=stock_factory() if stock_factory else None, deadline=deadline)
+                    label = {"format": [fw, fh], "order": order, "gravity": gravity, "giros": 90 if rs is coarse and len(rot_sets) > 1 else None}
+                    tasks.append((items, fw, fh, gap, edge, kw, min_side, priority, label))
+    # primero giros de 90°, la estrategia habitual y el primer formato
+    tasks.sort(key=lambda t: (t[5]["rotations"] is not coarse, t[8]["order"] != "area", t[8]["gravity"] != "x"))
     results = []
     workers = workers or max(1, min(8, (os.cpu_count() or 2) - 1))
     try:
@@ -500,9 +508,9 @@ def optimize(items: list[NestItem], formats: list[tuple[float, float]], gap: flo
     # mejora: la última chapa (la menos llena) en un formato más pequeño si consume menos material
     improved = []
     for label, kw, res, sc in results[:3]:
-        if time.time() > deadline + 10:
+        if time.time() > deadline + 2:
             break
-        better = _shrink_last_sheet(items, res, formats, gap, edge, kw, min_side, priority, item_rotations)
+        better = _shrink_last_sheet(items, res, formats, gap, edge, kw, min_side, priority, kw.get("item_rotations"))
         if better is not None:
             improved.append(({**label, "ultima_en":
                               [better.sheet_sources[-1]["w"], better.sheet_sources[-1]["h"]]}, kw, better,
