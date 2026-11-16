@@ -34,9 +34,21 @@ def fmt_duration(seconds) -> str:
     return f"{h} h {m:02d} min"
 
 
+def _asset_version() -> str:
+    """Huella de los ficheros estáticos: cambia con cada versión y obliga al navegador a no usar la caché antigua."""
+    import hashlib
+    h = hashlib.sha256()
+    for f in sorted((Path(__file__).parent / "static").glob("*")):
+        if f.is_file():
+            h.update(f.read_bytes())
+    return h.hexdigest()[:10]
+
+
+ASSET_VERSION = _asset_version()
+
 templates.env.filters.update(num=fmt_num, eur=fmt_eur, dur=fmt_duration)
 templates.env.globals.update(app_name=settings.app_name, FAMILIES=MATERIAL_FAMILIES, GASES=GASES,
-                             LASER_TYPES=LASER_TYPES)
+                             LASER_TYPES=LASER_TYPES, V=ASSET_VERSION)
 
 
 @dataclass

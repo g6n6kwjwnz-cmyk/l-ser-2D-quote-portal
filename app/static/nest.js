@@ -40,12 +40,12 @@
     svg.setAttribute("viewBox", `${-m} ${-m} ${W + 2 * m} ${H + 2 * m}`);
     svg.innerHTML = "";
     const g = el("g", { transform: `translate(0 ${H}) scale(1 -1)`, id: "world" }, svg);
-    el("rect", { x: 0, y: 0, width: W, height: H, class: "sheet" }, g);
-    el("rect", { x: D.edge, y: D.edge, width: Math.max(0, W - 2 * D.edge), height: Math.max(0, H - 2 * D.edge), class: "sheet-usable" }, g);
+    el("rect", { x: 0, y: 0, width: W, height: H, class: "sheet", fill: "#e9ecef", stroke: "#6b7280" }, g);
+    el("rect", { x: D.edge, y: D.edge, width: Math.max(0, W - 2 * D.edge), height: Math.max(0, H - 2 * D.edge), class: "sheet-usable", fill: "none", stroke: "#6b7280" }, g);
     const info = ev && ev.sheets[cur];
     if (info && info.offcut) {
       const o = info.offcut;
-      el("rect", { x: o.x, y: o.y, width: o.w, height: o.h, class: "offcut" }, g);
+      el("rect", { x: o.x, y: o.y, width: o.w, height: o.h, class: "offcut", fill: "#d1fae5", stroke: "#1b7f4b" }, g);
     }
     const bad = new Set(info ? info.conflicts : []);
     sh.placements.forEach((p, i) => {
@@ -54,7 +54,7 @@
       const r = part.rot[p.rotation] || part.rot[0];
       const pg = el("g", { transform: `translate(${p.x} ${p.y})`, class: "piece" + (bad.has(i) ? " bad" : "") + (sel === i ? " sel" : ""),
         "data-i": i, tabindex: editable ? 0 : -1 }, g);
-      el("path", { d: r.d, "fill-rule": "evenodd" }, pg);
+      el("path", { d: r.d, "fill-rule": "evenodd", fill: "#bfdbfe", stroke: "#0f6fde" }, pg);
       const t = el("title", {}, pg); t.textContent = part.name;
     });
     renderTabs(); renderSide();
