@@ -1,0 +1,59 @@
+/* Editor de plano (pantalla /piezas/<id>/editor) */
+.ed-app { display: flex; flex-direction: column; gap: .7rem; }
+.ed-toolbar { display: flex; flex-wrap: wrap; gap: .5rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .5rem; box-shadow: var(--shadow); position: relative; z-index: 4; }
+.ed-group { display: flex; flex-wrap: wrap; gap: .25rem; padding-right: .5rem; border-right: 1px solid var(--border); }
+.ed-group:last-child { border-right: 0; padding-right: 0; margin-left: auto; }
+.ed-btn { font: inherit; font-size: .84rem; font-weight: 600; padding: .35rem .6rem; border-radius: 7px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); cursor: pointer; white-space: nowrap; min-height: 34px; }
+.ed-btn:hover { border-color: var(--primary); }
+.ed-btn[aria-pressed="true"] { background: color-mix(in srgb, var(--primary) 15%, transparent); border-color: var(--primary); color: var(--primary); }
+.ed-btn:disabled { opacity: .45; cursor: default; }
+.ed-btn:focus-visible, .ed-issue:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.ed-menu { position: relative; } .ed-menu > summary { list-style: none; display: inline-flex; align-items: center; }
+.ed-menu > summary::-webkit-details-marker { display: none; }
+.ed-menu[open] > summary { border-color: var(--primary); }
+.ed-menu-pop { position: absolute; top: calc(100% + 4px); left: 0; z-index: 10; display: flex; flex-direction: column; gap: .25rem; min-width: 220px; padding: .4rem; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; box-shadow: 0 8px 24px rgb(0 0 0 / .18); }
+.ed-menu-pop .ed-btn { text-align: left; background: transparent; border-color: transparent; }
+.ed-menu-pop .ed-btn:hover { background: var(--surface-2); border-color: var(--border); }
+.ed-menu-pop .ed-btn[aria-pressed="true"]::before { content: "✓ "; }
+.ed-menu-pop .ed-btn[aria-pressed="false"]::before { content: "  "; white-space: pre; }
+.ed-save { padding: .35rem .8rem; font-size: .86rem; min-height: 34px; }
+.ed-main { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: .8rem; align-items: start; }
+.ed-canvas-wrap { position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+#ed-canvas { display: block; width: 100%; height: calc(100vh - 130px); min-height: 380px; max-height: 1100px; touch-action: none; cursor: default; outline: none; }
+#ed-canvas[data-tool="measure"], #ed-canvas[data-tool="start"] { cursor: crosshair; }
+.ed-status { display: flex; flex-wrap: wrap; gap: .3rem 1rem; padding: .4rem .7rem; border-top: 1px solid var(--border); font-size: .8rem; color: var(--muted); background: var(--surface-2); font-variant-numeric: tabular-nums; }
+#ed-coords { min-width: 11rem; } #ed-hint { flex: 1; color: var(--text); }
+.ed-state { font-weight: 600; } .ed-state.dirty { color: var(--warn); }
+.ed-side { display: flex; flex-direction: column; gap: .7rem; max-height: calc(100vh - 90px); overflow: auto; position: sticky; top: 74px; }
+.ed-panel { margin: 0; padding: .9rem; } .ed-panel h2 { font-size: 1rem; margin-bottom: .5rem; }
+.ed-panel .kv { font-size: .86rem; gap: .25rem .8rem; }
+.ed-delta { font-size: .75rem; font-weight: 700; margin-left: .2rem; } .ed-delta.up { color: var(--warn); } .ed-delta.down { color: var(--ok); }
+.ed-err { color: var(--danger); grid-column: 1 / -1; }
+.ed-rules { display: grid; grid-template-columns: 90px 1fr; gap: .5rem; margin-bottom: .4rem; }
+.ed-issues-sum { margin: .5rem 0; } .badge.err { background: var(--err-bg); color: var(--danger); }
+.ed-issues { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .3rem; max-height: 260px; overflow: auto; }
+.ed-issue { width: 100%; text-align: left; font: inherit; font-size: .8rem; line-height: 1.35; padding: .4rem .55rem; border-radius: 7px; border: 1px solid var(--border); border-left-width: 4px; background: var(--surface-2); color: var(--text); cursor: pointer; }
+.ed-issue.error { border-left-color: var(--danger); } .ed-issue.aviso { border-left-color: var(--warn); } .ed-issue.info { border-left-color: var(--muted); }
+.ed-issue:hover { background: color-mix(in srgb, var(--primary) 8%, var(--surface-2)); }
+.ed-list-wrap { max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.ed-list { font-size: .82rem; } .ed-list thead th { position: sticky; top: 0; }
+.ed-list tbody tr { cursor: pointer; } .ed-list tbody tr:hover { background: var(--surface-2); }
+.ed-list tbody tr.on { background: color-mix(in srgb, var(--primary) 14%, transparent); }
+.ed-list .sw { margin-right: .35rem; vertical-align: middle; }
+.sw.exterior { background: var(--cut-outer); } .sw.interior { background: var(--cut-inner); } .sw.abierto { background: var(--cut-open); }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; vertical-align: middle; }
+.dot.error { background: var(--danger); } .dot.aviso { background: var(--warn); } .dot.info { background: var(--muted); }
+.ed-log { list-style: none; margin: 0; padding: 0; font-size: .82rem; display: flex; flex-direction: column; gap: .2rem; max-height: 160px; overflow: auto; }
+.ed-help ul { margin: .5rem 0 0; padding-left: 1.1rem; } .ed-help summary { cursor: pointer; font-weight: 700; }
+.ed-dialog { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); padding: 1.2rem; width: min(480px, calc(100vw - 32px)); box-shadow: 0 10px 40px rgb(0 0 0 / .25); }
+.ed-dialog::backdrop { background: rgb(0 0 0 / .35); }
+.ed-dialog .fields { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+@media (max-width: 960px) {
+  .ed-main { grid-template-columns: 1fr; }
+  .ed-side { max-height: none; position: static; }
+  .ed-toolbar { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .ed-group { flex-wrap: nowrap; }
+  .ed-group:last-child { margin-left: 0; }
+  .ed-menu-pop { position: fixed; top: auto; left: 16px; right: 16px; min-width: 0; }
+  #ed-canvas { height: 62vh; min-height: 320px; }
+}
