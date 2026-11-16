@@ -34,6 +34,7 @@
       <div class="actions" data-edit>
         <select id="new-sheet-format" class="small-select" aria-label="Formato de la chapa nueva">{% for f in formats %}<option value="{{ f.width_mm|int }}x{{ f.height_mm|int }}" {% if f.width_mm == n.sheet_w_mm and f.height_mm == n.sheet_h_mm %}selected{% endif %}>{{ f.width_mm|int }}×{{ f.height_mm|int }}</option>{% endfor %}</select>
         <button class="ibtn" type="button" id="btn-add-sheet" data-tip="Añadir chapa">{{ icon('sheet-add') }}</button>
+        <button class="ibtn" type="button" id="btn-dup-sheet" data-tip="Duplicar esta chapa (misma disposición)">{{ icon('sheet-dup') }}</button>
         <button class="ibtn" type="button" id="btn-del-sheet" data-tip="Quitar chapa vacía">{{ icon('sheet-del') }}</button>
       </div>
     </div>
@@ -56,8 +57,16 @@
       </div>
       <div class="tgroup" data-edit>
         <button class="ibtn" type="button" id="btn-rot" data-tip="Girar 90° (R)">{{ icon('rotate') }}</button>
+        <button class="ibtn" type="button" id="btn-rot-ccw" data-tip="Girar −90° (Mayús+R)">{{ icon('rotate-ccw') }}</button>
+        <button class="ibtn" type="button" id="btn-rot-180" data-tip="Girar 180°">{{ icon('rotate-180') }}</button>
         <button class="ibtn" type="button" id="btn-rot-free" data-tip="Girar a un ángulo…">{{ icon('rotate-free') }}</button>
+      </div>
+      <div class="tgroup" data-edit>
+        <button class="ibtn" type="button" id="btn-copy" data-tip="Copiar (Ctrl+C)">{{ icon('copy') }}</button>
+        <button class="ibtn" type="button" id="btn-paste" data-tip="Pegar en el puntero o en otra chapa (Ctrl+V)">{{ icon('paste') }}</button>
         <button class="ibtn" type="button" id="btn-dup" data-tip="Duplicar (Ctrl+D)">{{ icon('duplicate') }}</button>
+        <button class="ibtn" type="button" id="btn-array" data-tip="Matriz: repetir en filas y columnas">{{ icon('array') }}</button>
+        <button class="ibtn" type="button" id="btn-same" data-tip="Seleccionar todas las iguales (Mayús+A)">{{ icon('select-same') }}</button>
         <button class="ibtn" type="button" id="btn-lock" data-tip="Bloquear / desbloquear (L)">{{ icon('lock') }}</button>
         <button class="ibtn" type="button" id="btn-magnet" data-tip="Imán: arrimar la selección a sus vecinas">{{ icon('magnet') }}</button>
         <button class="ibtn danger" type="button" id="btn-del" data-tip="Quitar de la chapa (Supr)">{{ icon('trash') }}</button>
@@ -67,6 +76,10 @@
         <button class="ibtn" type="button" data-align="der" data-tip="Alinear a la derecha">{{ icon('align-right') }}</button>
         <button class="ibtn" type="button" data-align="abajo" data-tip="Alinear abajo">{{ icon('align-bottom') }}</button>
         <button class="ibtn" type="button" data-align="arriba" data-tip="Alinear arriba">{{ icon('align-top') }}</button>
+        <button class="ibtn" type="button" data-align="centro-x" data-tip="Centrar en vertical (mismo eje X)">{{ icon('center-h') }}</button>
+        <button class="ibtn" type="button" data-align="centro-y" data-tip="Centrar en horizontal (mismo eje Y)">{{ icon('center-v') }}</button>
+        <button class="ibtn" type="button" data-align="repartir-x" data-tip="Repartir en horizontal (3 o más)">{{ icon('dist-h') }}</button>
+        <button class="ibtn" type="button" data-align="repartir-y" data-tip="Repartir en vertical (3 o más)">{{ icon('dist-v') }}</button>
       </div>
       <div class="tgroup" data-edit>
         <button class="ibtn" type="button" id="btn-compact" data-tip="Compactar: arrimar todas abajo a la izquierda">{{ icon('compact') }}</button>
@@ -75,6 +88,7 @@
       </div>
       <div class="tgroup">
         <button class="ibtn" type="button" id="btn-grid" data-tip="Rejilla (G)" aria-pressed="false">{{ icon('grid') }}</button>
+        <button class="ibtn" type="button" id="btn-labels" data-tip="Nombres de las piezas (N)" aria-pressed="false">{{ icon('label') }}</button>
         <button class="ibtn" type="button" id="btn-order" data-tip="Orden de corte" aria-pressed="false">{{ icon('route') }}</button>
         <button class="ibtn" type="button" id="btn-full" data-tip="Pantalla completa">{{ icon('fullscreen') }}</button>
       </div>
@@ -85,7 +99,24 @@
       <svg class="ruler ruler-x" id="ruler-x" aria-hidden="true"></svg>
       <svg class="ruler ruler-y" id="ruler-y" aria-hidden="true"></svg>
       <div class="svg-wrap" id="svg-wrap"><svg id="nest-svg" role="img" aria-label="Disposición de piezas en la chapa"></svg>
-        <div class="tip" id="tip" hidden></div></div>
+        <div class="tip" id="tip" hidden></div>
+        <div class="ctx-menu" id="ctx-menu" role="menu" hidden>
+          <button type="button" role="menuitem" data-act="btn-rot">{{ icon('rotate') }} Girar 90° <kbd>R</kbd></button>
+          <button type="button" role="menuitem" data-act="btn-rot-180">{{ icon('rotate-180') }} Girar 180°</button>
+          <button type="button" role="menuitem" data-act="btn-rot-free">{{ icon('rotate-free') }} Girar a un ángulo…</button>
+          <hr>
+          <button type="button" role="menuitem" data-act="btn-copy">{{ icon('copy') }} Copiar <kbd>Ctrl+C</kbd></button>
+          <button type="button" role="menuitem" data-act="btn-paste">{{ icon('paste') }} Pegar aquí <kbd>Ctrl+V</kbd></button>
+          <button type="button" role="menuitem" data-act="btn-dup">{{ icon('duplicate') }} Duplicar <kbd>Ctrl+D</kbd></button>
+          <button type="button" role="menuitem" data-act="btn-array">{{ icon('array') }} Matriz…</button>
+          <button type="button" role="menuitem" data-act="btn-same">{{ icon('select-same') }} Seleccionar iguales</button>
+          <hr>
+          <button type="button" role="menuitem" data-act="btn-magnet">{{ icon('magnet') }} Imán</button>
+          <button type="button" role="menuitem" data-act="btn-lock">{{ icon('lock') }} Bloquear / desbloquear <kbd>L</kbd></button>
+          <button type="button" role="menuitem" data-act="btn-zoom-sel">{{ icon('zoom-sel') }} Zoom a la selección</button>
+          <hr>
+          <button type="button" role="menuitem" data-act="btn-del" class="danger">{{ icon('trash') }} Quitar de la chapa <kbd>Supr</kbd></button>
+        </div></div>
     </div>
     <div class="cad-status" role="status">
       <span id="st-xy">X — · Y —</span><span id="st-tool">Seleccionar</span><span id="st-selcount"></span><span id="st-hover"></span>
@@ -93,7 +124,7 @@
     </div>
     <p class="small" id="measure-out" role="status"></p>
     <details class="help-keys"><summary class="small">Atajos y colores</summary>
-      <p class="help">Rueda: zoom en el puntero · botón central, espacio o mano: desplazar · doble clic: encajar · arrastrar en vacío: recuadro (de izquierda a derecha selecciona lo que queda dentro; de derecha a izquierda, lo que toca) · <kbd>Mayús</kbd>/<kbd>Ctrl</kbd>+clic: añadir a la selección · <kbd>Ctrl+A</kbd> todas · <kbd>R</kbd> gira 90° · <kbd>Ctrl+D</kbd> duplica · <kbd>L</kbd> bloquea · <kbd>Supr</kbd> quita · flechas 1 mm (<kbd>Mayús</kbd> 10 mm) · <kbd>Ctrl+Z</kbd>/<kbd>Ctrl+Y</kbd>.
+      <p class="help">Rueda: zoom en el puntero · botón central, espacio o mano: desplazar · doble clic: encajar · arrastrar en vacío: recuadro (de izquierda a derecha selecciona lo que queda dentro; de derecha a izquierda, lo que toca) · <kbd>Mayús</kbd>/<kbd>Ctrl</kbd>+clic: añadir a la selección · <kbd>Ctrl+A</kbd> todas · <kbd>R</kbd> gira 90° · <kbd>Mayús+R</kbd> gira −90° · <kbd>Ctrl+C</kbd>/<kbd>Ctrl+V</kbd> copia y pega (también en otra chapa) · <kbd>Ctrl+D</kbd> duplica · <kbd>Mayús+A</kbd> selecciona las iguales · <kbd>L</kbd> bloquea · <kbd>N</kbd> nombres · <kbd>Supr</kbd> quita · flechas: el paso elegido (<kbd>Mayús</kbd> ×10) · clic derecho: menú de acciones · <kbd>Ctrl+Z</kbd>/<kbd>Ctrl+Y</kbd>.
       Rojo = solape, separación menor de {{ n.gap_mm|num(1) }} mm o fuera del borde útil · verde rayado = retal aprovechable · contorno discontinuo = bloqueada.</p></details>
   </section>
 
@@ -128,6 +159,17 @@
         <button class="ibtn" type="button" id="btn-apply-pos" data-tip="Aplicar posición y giro">{{ icon('check') }}</button>
       </div>
       <label class="small" data-edit>Mover a <select id="sel-move"></select></label>
+      <div class="array-form" id="array-form" data-edit hidden>
+        <h3>Matriz</h3>
+        <div class="sel-grid">
+          <label>Filas<input id="arr-rows" type="number" min="1" max="50" value="2"></label>
+          <label>Columnas<input id="arr-cols" type="number" min="1" max="50" value="3"></label>
+          <label>Hueco extra <span class="unit">mm</span><input id="arr-gap" inputmode="decimal" value="0"></label>
+          <button class="ibtn" type="button" id="btn-array-go" data-tip="Crear la matriz">{{ icon('check') }}</button>
+        </div>
+        <p class="help">La separación mínima de {{ n.gap_mm|num(1) }} mm se respeta siempre; el hueco extra se suma a ella.</p>
+      </div>
+      <label class="small" data-edit>Paso de las flechas <span class="unit">mm</span> <input id="nudge" class="nudge" type="number" min="0.1" max="500" step="0.1" value="1"></label>
       <p id="sel-reason" class="error-text"></p>
     </section>
 
