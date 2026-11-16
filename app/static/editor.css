@@ -14,8 +14,6 @@
 .ed-menu-pop { position: absolute; top: calc(100% + 4px); left: 0; z-index: 10; display: flex; flex-direction: column; gap: .25rem; min-width: 220px; padding: .4rem; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; box-shadow: 0 8px 24px rgb(0 0 0 / .18); }
 .ed-menu-pop .ed-btn { text-align: left; background: transparent; border-color: transparent; }
 .ed-menu-pop .ed-btn:hover { background: var(--surface-2); border-color: var(--border); }
-.ed-menu-pop .ed-btn[aria-pressed="true"]::before { content: "✓ "; }
-.ed-menu-pop .ed-btn[aria-pressed="false"]::before { content: "  "; white-space: pre; }
 .ed-save { padding: .35rem .8rem; font-size: .86rem; min-height: 34px; }
 .ed-main { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: .8rem; align-items: start; }
 .ed-canvas-wrap { position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
@@ -56,4 +54,28 @@
   .ed-group:last-child { margin-left: 0; }
   .ed-menu-pop { position: fixed; top: auto; left: 16px; right: 16px; min-width: 0; }
   #ed-canvas { height: 62vh; min-height: 320px; }
+}
+
+/* iconos y controles de zoom */
+.ic { width: 18px; height: 18px; flex: none; display: block; }
+.btn .ic { width: 17px; height: 17px; }
+.ed-btn { display: inline-flex; align-items: center; gap: .4rem; }
+.ed-btn .ic + span { line-height: 1; }
+.ed-menu > summary .ic:last-child { width: 14px; height: 14px; opacity: .6; margin-left: -.1rem; }
+.ed-menu-pop .ed-btn { width: 100%; justify-content: flex-start; padding: .45rem .6rem; }
+.ed-menu-pop .ed-btn .ic { color: var(--muted); }
+.ed-menu-pop .ed-btn[aria-pressed]::before { content: none; }
+.ed-menu-pop .ed-btn[aria-pressed="true"] { color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
+.ed-menu-pop .ed-btn[aria-pressed="true"] .ic { color: var(--primary); }
+.ed-menu-pop .ed-btn[aria-pressed="false"] { opacity: .75; }
+.ed-btn[data-act="delete"]:hover { color: var(--danger); border-color: var(--danger); }
+.ed-btn[data-act="undo"], .ed-btn[data-act="redo"] { padding: .35rem .5rem; }
+.ed-zoom { position: absolute; right: 12px; top: 12px; z-index: 2; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; }
+.ed-zbtn { display: grid; place-items: center; width: 46px; white-space: nowrap; height: 38px; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--text); cursor: pointer; font: inherit; }
+.ed-zbtn:last-child { border-bottom: 0; } .ed-zbtn:hover { background: var(--surface-2); color: var(--primary); }
+.ed-zpct { font-size: .68rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--muted); height: 30px; }
+@media (max-width: 960px) {
+  .ed-group > .ed-btn span, .ed-group > .ed-menu > summary span { display: none; }
+  .ed-group > .ed-btn, .ed-group > .ed-menu > summary { padding: .45rem .55rem; min-height: 40px; }
+  .ed-save span { display: inline; }
 }

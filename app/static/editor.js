@@ -13,7 +13,8 @@
   const fmt = (v, d = 2) => (v == null || !isFinite(v) ? "—" :
     Number(v).toLocaleString("es-ES", { minimumFractionDigits: d, maximumFractionDigits: d }));
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const ARC_TOL = 0.01;          // mm, igual que el análisis del DXF
+  const ARC_TOL = 0.01;
+  const PX_PER_MM = 96 / 25.4;   // 100 % ≈ tamaño real en pantalla          // mm, igual que el análisis del DXF
 
   // ------------------------------------------------------------------ estado
   /** contornos: {pts: [[x,y],...], closed: bool, kind: string}. Cerrado ⇒ último punto = primero. */
@@ -169,6 +170,8 @@
     return 10 * p;
   }
   function paint() {
+    const pct = $("ed-zpct");
+    if (pct) { const z = (view.s / PX_PER_MM) * 100; pct.textContent = `${z >= 100 ? Math.round(z) : fmt(z, z < 10 ? 1 : 0)} %`; }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = colors.bg; ctx.fillRect(0, 0, W, H);
     if (show.grid) paintGrid();
@@ -699,6 +702,7 @@
     selissues() { sel = new Set(issues.flatMap((it) => it.contours)); flash(`${sel.size} contorno(s) con problemas.`); draw(); renderSide(); },
     fit() { fit(); },
     zoomin() { zoomAt(W / 2, H / 2, 1.4); },
+    zoom100() { zoomAt(W / 2, H / 2, PX_PER_MM / view.s); },
     zoomout() { zoomAt(W / 2, H / 2, 1 / 1.4); },
     undo: doUndo,
     redo: doRedo,

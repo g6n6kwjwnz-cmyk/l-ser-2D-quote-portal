@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "parts/_icons.html" import ic %}
 {% block title %}Editor · {{ part.filename }}{% endblock %}
 {% block content %}
 <link rel="stylesheet" href="/static/editor.css?v={{ V }}">
@@ -9,10 +10,10 @@
     <p class="muted small">Revisa y corrige la geometría analizada. Los cambios recalculan longitud de corte, perforaciones, área y avisos; el coste se recalcula con la geometría guardada.</p>
   </div>
   <div class="actions">
-    <a class="btn ghost" href="/piezas/{{ part.id }}">Volver a la pieza</a>
+    <a class="btn ghost" href="/piezas/{{ part.id }}">{{ ic('back') }}Volver a la pieza</a>
     {% if has_original and not locked %}
     <form method="post" action="/piezas/{{ part.id }}/geometria/restaurar" data-confirm="¿Restaurar la geometría original del plano? Se perderán las ediciones guardadas.">
-      <button class="btn danger" type="submit">Restaurar original</button>
+      <button class="btn danger" type="submit">{{ ic('restore') }}Restaurar original</button>
     </form>
     {% endif %}
   </div>
@@ -31,77 +32,80 @@
 <div id="ed-app" class="ed-app" data-part="{{ part.id }}" data-locked="{{ '1' if locked else '0' }}">
   <div class="ed-toolbar" role="toolbar" aria-label="Herramientas del editor">
     <div class="ed-group" aria-label="Herramienta">
-      <button type="button" class="ed-btn" data-tool="select" title="Seleccionar y mover (V)">Seleccionar</button>
-      <button type="button" class="ed-btn" data-tool="measure" title="Medir distancias con imán a vértices, puntos medios y centros (M)">Medir</button>
-      <button type="button" class="ed-btn" data-tool="start" title="Elegir el punto de perforación / inicio de corte (P)">Inicio de corte</button>
+      <button type="button" class="ed-btn" data-tool="select" title="Seleccionar y mover (V)">{{ ic('select') }}<span>Seleccionar</span></button>
+      <button type="button" class="ed-btn" data-tool="measure" title="Medir distancias con imán a vértices, puntos medios y centros (M)">{{ ic('measure') }}<span>Medir</span></button>
+      <button type="button" class="ed-btn" data-tool="start" title="Elegir el punto de perforación / inicio de corte (P)">{{ ic('start') }}<span>Inicio de corte</span></button>
     </div>
     <div class="ed-group" aria-label="Editar">
-      <button type="button" class="ed-btn" data-act="delete" title="Borrar la selección (Supr)">Borrar</button>
-      <button type="button" class="ed-btn" data-act="close" title="Cerrar los contornos abiertos seleccionados (C)">Cerrar</button>
-      <button type="button" class="ed-btn" data-act="join" title="Unir tramos abiertos por sus extremos (J)">Unir abiertos…</button>
+      <button type="button" class="ed-btn" data-act="delete" title="Borrar la selección (Supr)">{{ ic('delete') }}<span>Borrar</span></button>
+      <button type="button" class="ed-btn" data-act="close" title="Cerrar los contornos abiertos seleccionados (C)">{{ ic('close') }}<span>Cerrar</span></button>
+      <button type="button" class="ed-btn" data-act="join" title="Unir tramos abiertos por sus extremos (J)">{{ ic('join') }}<span>Unir abiertos…</span></button>
       <details class="ed-menu">
-        <summary class="ed-btn">Transformar ▾</summary>
+        <summary class="ed-btn">{{ ic('transform') }}<span>Transformar</span>{{ ic('chevron') }}</summary>
         <div class="ed-menu-pop">
-          <button type="button" class="ed-btn" data-act="move" title="Mover con valores exactos">Mover…</button>
-          <button type="button" class="ed-btn" data-act="rotate" title="Girar alrededor del centro">Girar…</button>
-          <button type="button" class="ed-btn" data-act="mirrorx">Simetría horizontal ↔</button>
-          <button type="button" class="ed-btn" data-act="mirrory">Simetría vertical ↕</button>
-          <button type="button" class="ed-btn" data-act="scale" title="Escalar (p. ej. 25,4 para pasar de pulgadas a mm)">Escalar…</button>
-          <button type="button" class="ed-btn" data-act="copy">Copiar en fila…</button>
-          <button type="button" class="ed-btn" data-act="reverse" title="Invertir el sentido de corte (R)">Invertir sentido de corte</button>
-          <button type="button" class="ed-btn" data-act="origin">Llevar al origen (0,0)</button>
+          <button type="button" class="ed-btn" data-act="move" title="Mover con valores exactos">{{ ic('move') }}<span>Mover…</span></button>
+          <button type="button" class="ed-btn" data-act="rotate" title="Girar alrededor del centro">{{ ic('rotate') }}<span>Girar…</span></button>
+          <button type="button" class="ed-btn" data-act="mirrorx">{{ ic('mirrorx') }}<span>Simetría horizontal ↔</span></button>
+          <button type="button" class="ed-btn" data-act="mirrory">{{ ic('mirrory') }}<span>Simetría vertical ↕</span></button>
+          <button type="button" class="ed-btn" data-act="scale" title="Escalar (p. ej. 25,4 para pasar de pulgadas a mm)">{{ ic('scale') }}<span>Escalar…</span></button>
+          <button type="button" class="ed-btn" data-act="copy">{{ ic('copy') }}<span>Copiar en fila…</span></button>
+          <button type="button" class="ed-btn" data-act="reverse" title="Invertir el sentido de corte (R)">{{ ic('reverse') }}<span>Invertir sentido de corte</span></button>
+          <button type="button" class="ed-btn" data-act="origin">{{ ic('origin') }}<span>Llevar al origen (0,0)</span></button>
         </div>
       </details>
       <details class="ed-menu">
-        <summary class="ed-btn">Añadir ▾</summary>
+        <summary class="ed-btn">{{ ic('add') }}<span>Añadir</span>{{ ic('chevron') }}</summary>
         <div class="ed-menu-pop">
-          <button type="button" class="ed-btn" data-act="circle">Círculo / taladro…</button>
-          <button type="button" class="ed-btn" data-act="rect">Rectángulo (con radio)…</button>
-          <button type="button" class="ed-btn" data-act="slot">Coliso…</button>
+          <button type="button" class="ed-btn" data-act="circle">{{ ic('circle') }}<span>Círculo / taladro…</span></button>
+          <button type="button" class="ed-btn" data-act="rect">{{ ic('rect') }}<span>Rectángulo (con radio)…</span></button>
+          <button type="button" class="ed-btn" data-act="slot">{{ ic('slot') }}<span>Coliso…</span></button>
         </div>
       </details>
       <details class="ed-menu">
-        <summary class="ed-btn">Limpiar ▾</summary>
+        <summary class="ed-btn">{{ ic('clean') }}<span>Limpiar</span>{{ ic('chevron') }}</summary>
         <div class="ed-menu-pop">
-          <button type="button" class="ed-btn" data-act="simplify">Simplificar (menos vértices)…</button>
-          <button type="button" class="ed-btn" data-act="tiny">Quitar contornos diminutos…</button>
+          <button type="button" class="ed-btn" data-act="simplify">{{ ic('simplify') }}<span>Simplificar (menos vértices)…</span></button>
+          <button type="button" class="ed-btn" data-act="tiny">{{ ic('tiny') }}<span>Quitar contornos diminutos…</span></button>
         </div>
       </details>
     </div>
     <div class="ed-group" aria-label="Selección y vista">
       <details class="ed-menu">
-        <summary class="ed-btn">Selección ▾</summary>
+        <summary class="ed-btn">{{ ic('selection') }}<span>Selección</span>{{ ic('chevron') }}</summary>
         <div class="ed-menu-pop">
-          <button type="button" class="ed-btn" data-act="selall">Todo (Ctrl+A)</button>
-          <button type="button" class="ed-btn" data-act="selinv">Invertir selección</button>
-          <button type="button" class="ed-btn" data-act="selopen">Contornos abiertos</button>
-          <button type="button" class="ed-btn" data-act="selissues">Contornos con problemas</button>
+          <button type="button" class="ed-btn" data-act="selall">{{ ic('selall') }}<span>Todo (Ctrl+A)</span></button>
+          <button type="button" class="ed-btn" data-act="selinv">{{ ic('selinv') }}<span>Invertir selección</span></button>
+          <button type="button" class="ed-btn" data-act="selopen">{{ ic('selopen') }}<span>Contornos abiertos</span></button>
+          <button type="button" class="ed-btn" data-act="selissues">{{ ic('selissues') }}<span>Contornos con problemas</span></button>
         </div>
       </details>
       <details class="ed-menu">
-        <summary class="ed-btn">Vista ▾</summary>
+        <summary class="ed-btn">{{ ic('view') }}<span>Vista</span>{{ ic('chevron') }}</summary>
         <div class="ed-menu-pop">
-          <button type="button" class="ed-btn" data-toggle="grid" aria-pressed="true">Rejilla</button>
-          <button type="button" class="ed-btn" data-toggle="dirs" aria-pressed="false">Flechas de sentido</button>
-          <button type="button" class="ed-btn" data-toggle="nums" aria-pressed="false">Números de contorno</button>
-          <button type="button" class="ed-btn" data-toggle="pierce" aria-pressed="true">Perforaciones</button>
-          <button type="button" class="ed-btn" data-toggle="nodes" aria-pressed="false">Vértices</button>
+          <button type="button" class="ed-btn" data-toggle="grid" aria-pressed="true">{{ ic('grid') }}<span>Rejilla</span></button>
+          <button type="button" class="ed-btn" data-toggle="dirs" aria-pressed="false">{{ ic('dirs') }}<span>Flechas de sentido</span></button>
+          <button type="button" class="ed-btn" data-toggle="nums" aria-pressed="false">{{ ic('nums') }}<span>Números de contorno</span></button>
+          <button type="button" class="ed-btn" data-toggle="pierce" aria-pressed="true">{{ ic('pierce') }}<span>Perforaciones</span></button>
+          <button type="button" class="ed-btn" data-toggle="nodes" aria-pressed="false">{{ ic('nodes') }}<span>Vértices</span></button>
         </div>
       </details>
-      <button type="button" class="ed-btn" data-act="fit" title="Ajustar a la ventana (F)">Ajustar</button>
-      <button type="button" class="ed-btn" data-act="zoomin" title="Acercar (+)" aria-label="Acercar">+</button>
-      <button type="button" class="ed-btn" data-act="zoomout" title="Alejar (−)" aria-label="Alejar">−</button>
     </div>
     <div class="ed-group" aria-label="Historial y guardado">
-      <button type="button" class="ed-btn" data-act="undo" title="Deshacer (Ctrl+Z)" aria-label="Deshacer">↶</button>
-      <button type="button" class="ed-btn" data-act="redo" title="Rehacer (Ctrl+Y)" aria-label="Rehacer">↷</button>
-      {% if not locked %}<button type="button" class="btn primary ed-save" data-act="save" title="Guardar (Ctrl+S)">Guardar</button>{% endif %}
-      <button type="button" class="btn ed-save" data-act="saveas" title="Guardar como pieza nueva (conserva la original)">Guardar como nueva</button>
+      <button type="button" class="ed-btn" data-act="undo" title="Deshacer (Ctrl+Z)" aria-label="Deshacer">{{ ic('undo') }}</button>
+      <button type="button" class="ed-btn" data-act="redo" title="Rehacer (Ctrl+Y)" aria-label="Rehacer">{{ ic('redo') }}</button>
+      {% if not locked %}<button type="button" class="btn primary ed-save" data-act="save" title="Guardar (Ctrl+S)">{{ ic('save') }}<span>Guardar</span></button>{% endif %}
+      <button type="button" class="btn ed-save" data-act="saveas" title="Guardar como pieza nueva (conserva la original)">{{ ic('saveas') }}<span>Guardar como nueva</span></button>
     </div>
   </div>
 
   <div class="ed-main">
     <div class="ed-canvas-wrap">
+      <div class="ed-zoom" role="group" aria-label="Zoom">
+        <button type="button" class="ed-zbtn" data-act="zoomin" title="Acercar (rueda del ratón hacia delante)" aria-label="Acercar">{{ ic('zoomin') }}</button>
+        <button type="button" class="ed-zbtn ed-zpct" data-act="zoom100" title="Escala real aproximada (1 mm = 3,78 px)" id="ed-zpct">100 %</button>
+        <button type="button" class="ed-zbtn" data-act="zoomout" title="Alejar (rueda del ratón hacia atrás)" aria-label="Alejar">{{ ic('zoomout') }}</button>
+        <button type="button" class="ed-zbtn" data-act="fit" title="Ajustar a la ventana (F)" aria-label="Ajustar">{{ ic('fit') }}</button>
+      </div>
       <canvas id="ed-canvas" tabindex="0" aria-label="Plano de la pieza. Usa la rueda o dos dedos para hacer zoom."></canvas>
       <div class="ed-status"><span id="ed-coords">X — · Y —</span><span id="ed-hint"></span><span id="ed-state" class="ed-state">Cargando…</span></div>
     </div>
