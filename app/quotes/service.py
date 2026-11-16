@@ -68,9 +68,16 @@ def price_item(db: Session, item: RequestItem, machine: Machine | None = None, g
     if item.supply == "cliente":  # material aportado por el cliente: no se cobra la chapa
         material = SimpleNamespace(family=fam, density_kg_dm3=material.density_kg_dm3, price_eur_kg=0.0)
     param = machine.interpolated_param(fam, t, gas)
+    qin = QuoteInput(quantity=item.quantity, thickness_mm=t, gas=gas)
+    from ..nesting.service import nest_for_item   # import local: evita dependencia circular
+    nst = nest_for_item(db, item)
+    if nst is not None and item.part.metrics.get("net_area_mm2", 0) > 0:
+        # material según el anidado real: chapa consumida (sin los retales que vuelven al almacén) / área de piezas
+        qin.nest_charged_area_mm2 = item.part.metrics["net_area_mm2"] * nst.material_factor
+        qin.nest_sheets = sum(1 for s in nst.sheets if any(p["key"] == item.part_id for p in s["placements"]))
+        qin.nest_utilization_pct = nst.utilization_pct
     try:
-        q = compute_quote(item.part.metrics, machine, param, material, db.scalar(select(CostSettings)),
-                          QuoteInput(quantity=item.quantity, thickness_mm=t, gas=gas))
+        q = compute_quote(item.part.metrics, machine, param, material, db.scalar(select(CostSettings)), qin)
     except CostingError as exc:
         item.calc_error, item.calc_unit_price, item.calc_snapshot = str(exc), None, {}
         return

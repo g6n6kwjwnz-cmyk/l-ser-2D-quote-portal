@@ -6,7 +6,7 @@ están pensados para simular y deben ajustarse con los datos reales del taller d
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models import CompanyProfile, CostSettings, CutParameter, Machine, Material
+from .models import CompanyProfile, CostSettings, CutParameter, Machine, Material, NestSettings, SheetFormat
 
 # (familia, gas, espesor mm, velocidad m/min, perforación s, caudal gas m3/h, kerf mm)
 EXAMPLE_PARAMS = [
@@ -86,6 +86,12 @@ def seed(db: Session) -> None:
             part_gap_mm=5, sheet_edge_mm=10, scrap_recovery_pct=30,
             quantity_discounts=[[10, 3], [50, 7], [100, 10], [500, 15]],
         ))
+    if db.scalar(select(NestSettings).limit(1)) is None:
+        db.add(NestSettings())   # tabla estándar de separaciones (ver models.DEFAULT_NEST_GAPS)
+    if db.scalar(select(SheetFormat).limit(1)) is None:
+        db.add_all([SheetFormat(name="Gran formato", width_mm=3000, height_mm=1500, is_default=True),
+                    SheetFormat(name="Formato medio", width_mm=2500, height_mm=1250),
+                    SheetFormat(name="Formato pequeño", width_mm=2000, height_mm=1000)])
     if db.scalar(select(CompanyProfile).limit(1)) is None:
         # Huecos a completar desde «Empresa» en el menú
         db.add(CompanyProfile(

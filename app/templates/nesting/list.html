@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Anidado · {{ app_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Anidado de chapa</h1>
+    <p class="muted">Colocación automática por forma real con la separación estándar según espesor, y retoque manual en el editor.</p></div>
+  <div class="actions"><a class="btn" href="/retales">Retales</a><a class="btn" href="/anidado/ajustes">Ajustes</a></div>
+</div>
+{% if error %}<div class="alert error">{{ error }}</div>{% endif %}
+
+<details class="card" {% if not nests %}open{% endif %}>
+  <summary><strong>+ Nuevo anidado manual</strong> <span class="muted small">(desde una petición usa «Anidar chapa» en la propia petición)</span></summary>
+  <form method="post" action="/anidado" class="nest-new">
+    <div class="fields">
+      <div class="field"><label for="n-name">Nombre</label><input id="n-name" name="name" maxlength="120" placeholder="Opcional"></div>
+      <div class="field"><label for="n-mat">Material</label><select id="n-mat" name="material_id" required>
+        {% for m in materials %}<option value="{{ m.id }}">{{ m.code }} · {{ FAMILIES[m.family] }}</option>{% endfor %}</select></div>
+      <div class="field"><label for="n-t">Espesor <span class="unit">mm</span></label><input id="n-t" name="thickness_mm" type="number" step="any" min="0.5" max="12" required></div>
+      <div class="field"><label for="n-f">Formato de chapa</label><select id="n-f" name="format_id">
+        {% for f in formats %}<option value="{{ f.id }}" {% if default_format and f.id == default_format.id %}selected{% endif %}>{{ f.name }} · {{ f.label }}</option>{% endfor %}</select></div>
+      <div class="field"><label class="check"><input type="checkbox" name="use_remnants" checked> Usar antes los retales del almacén</label></div>
+    </div>
+    <h3>Piezas y cantidades</h3>
+    {% if parts %}
+    <div class="table-wrap"><table class="compact">
+      <thead><tr><th></th><th>Pieza</th><th class="num">Medidas</th><th class="num">Cantidad</th></tr></thead>
+      <tbody>{% for p in parts %}<tr>
+        <td class="mini-thumb">{{ p.svg|safe }}</td><td>{{ p.filename }}<br><span class="muted small">{{ p.created_at.strftime('%d/%m/%Y') }}</span></td>
+        <td class="num">{{ p.metrics.bbox_width_mm|num(0) }} × {{ p.metrics.bbox_height_mm|num(0) }} mm</td>
+        <td class="num"><input class="qty" name="qty-{{ p.id }}" type="number" min="0" max="2000" step="1" value="0" aria-label="Cantidad de {{ p.filename }}"></td></tr>{% endfor %}</tbody>
+    </table></div>
+    <div class="form-actions"><button class="btn primary" type="submit">Anidar</button></div>
+    {% else %}<p class="empty">Aún no hay piezas. Súbelas en <a href="/piezas">Piezas</a>.</p>{% endif %}
+  </form>
+</details>
+
+{% if nests %}
+<div class="table-wrap"><table>
+  <thead><tr><th>Anidado</th><th>Material</th><th class="num">Chapas</th><th class="num">Aprovechamiento</th><th>Estado</th><th>Actualizado</th></tr></thead>
+  <tbody>{% for n in nests %}<tr>
+    <td><a href="/anidado/{{ n.id }}"><strong>{{ n.name }}</strong></a>{% if n.request %}<br><a class="small" href="/peticiones/{{ n.request_id }}">{{ n.request.number }} · {{ n.request.company }}</a>{% endif %}</td>
+    <td>{{ n.material.code }} {{ n.thickness_mm|num(1) }} mm<br><span class="muted small">separación {{ n.gap_mm|num(1) }} · borde {{ n.edge_mm|num(1) }} mm</span></td>
+    <td class="num">{{ n.sheets|length }}</td><td class="num">{{ n.utilization_pct|num(1) }} %</td>
+    <td>{% if n.conflicts %}<span class="badge warn">{{ n.conflicts }} conflicto(s)</span>{% endif %}
+      <span class="badge {{ 'ok' if n.status == 'confirmado' else 'off' }}">{{ statuses[n.status] }}</span></td>
+    <td class="small">{{ n.updated_at.strftime('%d/%m/%Y %H:%M') }}</td></tr>{% endfor %}</tbody>
+</table></div>
+{% endif %}
+{% endblock %}

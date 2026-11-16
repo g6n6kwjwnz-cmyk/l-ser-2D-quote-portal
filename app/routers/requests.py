@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..mailer import mail_enabled, send_mail
-from ..models import REQUEST_STATUSES, SUPPLY_OPTIONS, Machine, QuoteRequest
+from ..models import REQUEST_STATUSES, SUPPLY_OPTIONS, Machine, Nest, QuoteRequest, Remnant
 from ..quotes.service import build_pdf, company, customer_url, new_token, offer_number, price_item
 from ..web import templates
 
@@ -161,6 +161,12 @@ async def delete_request(req_id: int, request: Request, db: Session = Depends(ge
     if (await request.form()).get("confirm") != req.number:
         raise HTTPException(400, "Escribe el número de la petición para confirmar.")
     parts = [it.part for it in req.items]
+    # anidados de la petición (contienen la disposición de sus piezas); sus retales usados vuelven al almacén
+    for n in db.scalars(select(Nest).where(Nest.request_id == req.id)):
+        for r in db.scalars(select(Remnant).where(Remnant.used_in_nest_id == n.id)):
+            r.status, r.used_in_nest_id = "disponible", None
+        db.delete(n)
+    db.flush()
     db.delete(req)
     db.flush()
     for p in parts:

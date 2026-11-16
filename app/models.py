@@ -293,3 +293,98 @@ class CompanyProfile(Base):
     vat_pct: Mapped[float] = mapped_column(Float, default=21.0)
     extra_conditions: Mapped[str] = mapped_column(Text, default="")
     response_days: Mapped[int] = mapped_column(Integer, default=2, doc="Días laborables en que se promete responder")
+
+
+# ------------------------------------------------------------------ anidado de chapa
+# Separación estándar entre piezas y margen de borde según espesor (orientativo, ajustable en «Anidado › Ajustes»):
+# [espesor máx. mm, separación mm, borde mm]
+DEFAULT_NEST_GAPS = [[1.0, 2.0, 5.0], [3.0, 3.0, 5.0], [5.0, 5.0, 8.0], [8.0, 8.0, 10.0], [12.0, 12.0, 12.0]]
+REMNANT_STATUSES = {"disponible": "Disponible", "reservado": "Reservado", "usado": "Usado"}
+NEST_STATUSES = {"borrador": "Borrador", "confirmado": "Confirmado"}
+
+
+class NestSettings(Base):
+    """Reglas de anidado (una fila)."""
+    __tablename__ = "nest_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    gap_table: Mapped[list] = mapped_column(JSON, default=lambda: [r[:] for r in DEFAULT_NEST_GAPS])
+    extra_gap_families: Mapped[list] = mapped_column(JSON, default=lambda: ["inox", "aluminio"])
+    extra_gap_mm: Mapped[float] = mapped_column(Float, default=1.0, doc="Separación adicional en esas familias")
+    extra_gap_from_mm: Mapped[float] = mapped_column(Float, default=6.0, doc="A partir de este espesor")
+    remnant_min_mm: Mapped[float] = mapped_column(Float, default=300.0, doc="Lado mínimo para guardar un retal")
+    allow_rotation: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    def gap_edge(self, family: str, thickness: float) -> tuple[float, float]:
+        rows = sorted(self.gap_table or DEFAULT_NEST_GAPS)
+        row = next((r for r in rows if thickness <= r[0] + 1e-9), rows[-1])
+        gap, edge = float(row[1]), float(row[2])
+        if family in (self.extra_gap_families or []) and thickness >= self.extra_gap_from_mm - 1e-9:
+            gap += self.extra_gap_mm
+        return gap, edge
+
+
+class SheetFormat(Base):
+    """Formato comercial de chapa entera."""
+    __tablename__ = "sheet_formats"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(60))
+    width_mm: Mapped[float] = mapped_column(Float)
+    height_mm: Mapped[float] = mapped_column(Float)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    @property
+    def label(self) -> str:
+        return f"{self.width_mm:g} × {self.height_mm:g} mm"
+
+
+class Remnant(Base):
+    """Retal de chapa en almacén (rectangular)."""
+    __tablename__ = "remnants"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(20), default="")
+    material_id: Mapped[int] = mapped_column(ForeignKey("materials.id"))
+    thickness_mm: Mapped[float] = mapped_column(Float)
+    width_mm: Mapped[float] = mapped_column(Float)
+    height_mm: Mapped[float] = mapped_column(Float)
+    location: Mapped[str] = mapped_column(String(80), default="")
+    notes: Mapped[str] = mapped_column(String(300), default="")
+    status: Mapped[str] = mapped_column(String(20), default="disponible")
+    source_nest_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    used_in_nest_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    material: Mapped[Material] = relationship()
+
+
+class Nest(Base):
+    """Anidado de un material y espesor: piezas a colocar y disposición por chapa."""
+    __tablename__ = "nests"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    status: Mapped[str] = mapped_column(String(20), default="borrador")
+    request_id: Mapped[int | None] = mapped_column(ForeignKey("quote_requests.id", ondelete="CASCADE"), nullable=True)
+    material_id: Mapped[int] = mapped_column(ForeignKey("materials.id"))
+    thickness_mm: Mapped[float] = mapped_column(Float)
+    gap_mm: Mapped[float] = mapped_column(Float)
+    edge_mm: Mapped[float] = mapped_column(Float)
+    sheet_w_mm: Mapped[float] = mapped_column(Float)
+    sheet_h_mm: Mapped[float] = mapped_column(Float)
+    use_remnants: Mapped[bool] = mapped_column(Boolean, default=True)
+    allow_rotation: Mapped[bool] = mapped_column(Boolean, default=True)
+    # [{"part_id", "quantity"}]
+    items: Mapped[list] = mapped_column(JSON, default=list)
+    # [{"source": {"kind": "formato"|"retal", "remnant_id", "w", "h"}, "placements": [{key,x,y,rotation}]}]
+    sheets: Mapped[list] = mapped_column(JSON, default=list)
+    utilization_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    material_factor: Mapped[float] = mapped_column(Float, default=0.0, doc="Área consumida / área neta de piezas")
+    conflicts: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+    material: Mapped[Material] = relationship()
+    request: Mapped[QuoteRequest | None] = relationship()

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Ajustes de anidado · {{ app_name }}{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="/anidado">Anidado</a> /</p>
+<div class="page-head"><div><h1>Ajustes de anidado</h1>
+  <p class="muted">Separación entre piezas y margen al borde de la chapa según espesor. Los anidados nuevos toman estos valores.</p></div></div>
+{% if error %}<div class="alert error">{{ error }}</div>{% endif %}
+{% if ok %}<div class="alert ok">Ajustes guardados.</div>{% endif %}
+<div class="grid-cards">
+<form class="card" method="post" action="/anidado/ajustes">
+  <h2>Separaciones según espesor</h2>
+  <div class="field wide"><label for="gap_table">Tabla <span class="unit">una línea por tramo: espesor máx. · separación · borde (mm)</span></label>
+    <textarea id="gap_table" name="gap_table" rows="7" class="mono">{{ table_text }}</textarea>
+    <p class="help">Valores estándar de partida para fibra: hasta 1 mm → 2/5 · hasta 3 mm → 3/5 · hasta 5 mm → 5/8 · hasta 8 mm → 8/10 · hasta 12 mm → 12/12. Ajústalos a lo que use tu CAM.</p></div>
+  <div class="fields">
+    <div class="field"><label for="extra_gap_mm">Separación adicional <span class="unit">mm</span></label><input id="extra_gap_mm" name="extra_gap_mm" type="number" step="any" min="0" value="{{ cfg.extra_gap_mm }}"></div>
+    <div class="field"><label for="extra_gap_from_mm">desde espesor <span class="unit">mm</span></label><input id="extra_gap_from_mm" name="extra_gap_from_mm" type="number" step="any" min="0" value="{{ cfg.extra_gap_from_mm }}"></div>
+    <div class="field"><label>en las familias</label>
+      {% for f, label in FAMILIES.items() %}<label class="check-inline"><input type="checkbox" name="fam-{{ f }}" {% if f in cfg.extra_gap_families %}checked{% endif %}> {{ label }}</label>{% endfor %}
+      <p class="help">El inoxidable y el aluminio gruesos acumulan más calor: conviene más separación.</p></div>
+    <div class="field"><label for="remnant_min_mm">Retal mínimo a guardar <span class="unit">mm de lado</span></label><input id="remnant_min_mm" name="remnant_min_mm" type="number" step="any" min="50" value="{{ cfg.remnant_min_mm }}"></div>
+    <div class="field"><label class="check"><input type="checkbox" name="allow_rotation" {% if cfg.allow_rotation %}checked{% endif %}> Permitir girar piezas (0/90/180/270°)</label>
+      <p class="help">Desactívalo si el material tiene veta o acabado direccional (p. ej. inox satinado).</p></div>
+  </div>
+  <div class="form-actions"><button class="btn primary" type="submit">Guardar</button></div>
+</form>
+
+<section class="card"><h2>Formatos de chapa</h2>
+  <table class="compact"><tbody>{% for f in formats %}
+    <tr class="{% if not f.active %}inactive{% endif %}"><td><strong>{{ f.name }}</strong><br><span class="muted small">{{ f.label }}</span></td>
+      <td>{% if f.is_default %}<span class="badge ok">Predeterminado</span>{% elif not f.active %}<span class="badge off">Inactivo</span>{% endif %}</td>
+      <td class="right"><form method="post" action="/anidado/formatos/{{ f.id }}" class="actions">
+        {% if not f.is_default %}<button class="btn small-btn" name="accion" value="predeterminado">Predeterminado</button>{% endif %}
+        <button class="btn small-btn ghost" name="accion" value="estado">{{ 'Desactivar' if f.active else 'Activar' }}</button></form></td></tr>
+  {% endfor %}</tbody></table>
+  <form method="post" action="/anidado/formatos" class="fields" style="margin-top:1rem">
+    <div class="field"><label for="f-name">Nombre</label><input id="f-name" name="name" maxlength="60" placeholder="p. ej. Formato 4000×2000"></div>
+    <div class="field"><label for="f-w">Largo <span class="unit">mm</span></label><input id="f-w" name="width_mm" type="number" min="100" step="any" required></div>
+    <div class="field"><label for="f-h">Ancho <span class="unit">mm</span></label><input id="f-h" name="height_mm" type="number" min="100" step="any" required></div>
+    <div class="field"><label>&nbsp;</label><button class="btn" type="submit">+ Añadir formato</button></div>
+  </form>
+</section>
+</div>
+{% endblock %}

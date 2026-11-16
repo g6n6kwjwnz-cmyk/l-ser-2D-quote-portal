@@ -30,7 +30,9 @@ y calcular el coste de fabricación.
   Usuarios gestionados con `python -m app.usuarios crear|listar|desactivar`.
   La contraseña creada por script es provisional: en el primer acceso el portal obliga a cambiarla
   (con indicador de fortaleza y botón «Sugerir contraseña segura»). También se puede cambiar desde el menú. En producción con HTTPS: `PORTAL_COOKIE_SECURE=true`.
-- El plano original **no se guarda**: solo métricas, huella SHA-256 y la vista previa SVG generada en servidor.
+- El plano original **no se guarda**: solo métricas, huella SHA-256, la vista previa SVG y, para el anidado, los
+  contornos de corte como polilíneas (sin capas, textos, cotas, cajetín ni metadatos del fichero). Se borran con la
+  petición (RGPD) y solo son accesibles con sesión iniciada.
 - Validación de subida por extensión, firma del contenido y tamaño máximo.
 - Cabeceras CSP, `X-Frame-Options`, `nosniff`, `Referrer-Policy`; rechazo de POST de otro origen (CSRF básico).
 - Identificadores de pieza no predecibles (UUID).
@@ -51,6 +53,23 @@ registro de auditoría, política de retención RGPD, portal de cliente, estados
 - **RGPD**: supresión completa de una petición y sus piezas desde la ficha interna. Los tokens de acceso se guardan
   solo como hash.
 - **Empresa** (`/empresa`): razón social, CIF, dirección y condiciones por defecto que salen en el PDF.
+
+## Anidado de chapa
+
+- **Automático** (`/anidado`): anidado por forma real (las piezas pequeñas pueden ir dentro de los huecos de las
+  grandes), giros de 90° y separación mínima garantizada entre siluetas y al borde. Desde una petición, «Anidar chapa»
+  crea un anidado por cada material y espesor.
+- **Separación estándar según espesor** (`/anidado/ajustes`): tabla editable espesor máx. → separación y borde
+  (de partida: ≤1 mm 2/5 · ≤3 mm 3/5 · ≤5 mm 5/8 · ≤8 mm 8/10 · ≤12 mm 12/12, +1 mm en inox/aluminio desde 6 mm).
+  Formatos de chapa (3000×1500, 2500×1250, 2000×1000 y los que se añadan).
+- **Editor manual**: arrastrar, girar, quitar, añadir pendientes, mover entre chapas. El servidor comprueba cada
+  cambio y marca en rojo solapes, separaciones insuficientes o piezas fuera del borde útil.
+- **Retales** (`/retales`): se usan primero los retales disponibles del mismo material y espesor. Al confirmar un
+  anidado, los retales usados salen del almacén y los sobrantes aprovechables (lado ≥ retal mínimo) se dan de alta.
+- **Coste**: si la petición tiene anidado sin conflictos, el material de la oferta se calcula con la chapa realmente
+  consumida (sin los sobrantes que vuelven a almacén) en lugar de la estimación por envolvente.
+- **Exportar DXF**: chapas en fila con capas CHAPA, CORTE_EXT, CORTE_INT, RETAL y TEXTO, en mm. El CAM de la máquina
+  sigue haciendo el programa definitivo (entradas, microuniones, orden de corte).
 
 Correo (opcional) en `.env`: `PORTAL_SMTP_HOST`, `PORTAL_SMTP_PORT`, `PORTAL_SMTP_USER`, `PORTAL_SMTP_PASSWORD`,
 `PORTAL_SMTP_FROM`, `PORTAL_NOTIFY_EMAIL` y `PORTAL_PUBLIC_BASE_URL` (dirección pública del portal para los enlaces).

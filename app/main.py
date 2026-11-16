@@ -9,7 +9,7 @@ from sqlalchemy import inspect, text
 
 from .auth import COOKIE_NAME, user_from_token
 from .db import Base, SessionLocal, engine
-from .routers import auth, catalog, machines, parts, profile, public, requests
+from .routers import auth, catalog, machines, nesting, parts, profile, public, requests
 from .seed import seed
 
 
@@ -39,6 +39,7 @@ app.include_router(profile.router)
 app.include_router(parts.router)
 app.include_router(machines.router)
 app.include_router(catalog.router)
+app.include_router(nesting.router)
 
 
 PUBLIC_PATHS = ("/login", "/static/", "/salud", "/solicitar", "/solicitud/")

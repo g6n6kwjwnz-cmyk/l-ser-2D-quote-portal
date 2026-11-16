@@ -17,6 +17,8 @@
       {% set p = request.url.path %}
       <a href="/peticiones" {% if p.startswith('/peticiones') %}aria-current="page"{% endif %}>Peticiones</a>
       <a href="/piezas" {% if p.startswith('/piezas') %}aria-current="page"{% endif %}>Piezas</a>
+      <a href="/anidado" {% if p.startswith('/anidado') %}aria-current="page"{% endif %}>Anidado</a>
+      <a href="/retales" {% if p.startswith('/retales') %}aria-current="page"{% endif %}>Retales</a>
       <a href="/maquinas" {% if p.startswith('/maquinas') %}aria-current="page"{% endif %}>Máquinas</a>
       <a href="/materiales" {% if p.startswith('/materiales') %}aria-current="page"{% endif %}>Materiales</a>
       <a href="/parametros" {% if p.startswith('/parametros') %}aria-current="page"{% endif %}>Parámetros</a>

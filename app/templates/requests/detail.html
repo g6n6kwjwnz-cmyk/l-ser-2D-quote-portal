@@ -6,6 +6,7 @@
   <div><h1>{{ req.number }} <span class="badge st-{{ req.status }}">{{ statuses[req.status] }}</span></h1>
     <p class="muted">Recibida el {{ req.created_at.strftime('%d/%m/%Y %H:%M') }}{% if req.offer_number %} · Oferta {{ req.offer_number }}{% if req.offer_issued_at %} del {{ req.offer_issued_at.strftime('%d/%m/%Y') }}{% endif %}{% endif %}</p></div>
   <div class="actions">
+    <form method="post" action="/anidado/desde-peticion/{{ req.id }}"><button class="btn" type="submit" title="Un anidado por material y espesor">Anidar chapa</button></form>
     <a class="btn" href="/peticiones/{{ req.id }}/oferta.pdf" target="_blank" rel="noopener">{{ 'Ver PDF' if req.offer_number else 'Vista previa PDF' }}</a>
   </div>
 </div>
@@ -51,7 +52,7 @@
         <span class="calc">Calculado: <strong>{{ it.calc_unit_price|eur if it.calc_unit_price is not none else '—' }}</strong> · Importe: <strong>{{ ((it.unit_price or 0) * it.quantity)|eur }}</strong></span>
       </div>
       {% if s %}<details class="small"><summary>Desglose interno</summary>
-        <p class="muted">Tiempo/pieza {{ s.part_time_s|dur }} · pedido {{ (s.order_time_h*3600)|dur }} · {{ s.parts_per_sheet }} uds./chapa · {{ s.sheets_needed }} chapa(s) · aprovechamiento {{ s.sheet_utilization_pct|num(1) }} %<br>
+        <p class="muted">Tiempo/pieza {{ s.part_time_s|dur }} · pedido {{ (s.order_time_h*3600)|dur }} · {{ s.parts_per_sheet }} uds./chapa · {{ s.sheets_needed }} chapa(s) · aprovechamiento {{ s.sheet_utilization_pct|num(1) }} %{% if s.material_source == 'anidado' %} <span class="badge ok">material según anidado</span>{% endif %}<br>
         Máquina {{ s.machine_cost|eur }} · gas {{ s.gas_cost|eur }} · energía {{ s.energy_cost|eur }} · material {{ s.material_cost|eur }} · preparación {{ s.setup_cost|eur }} → coste {{ s.total_cost|eur }} · margen {{ s.margin_pct|num(1) }} %{% if s.discount_pct %} · dto. {{ s.discount_pct|num(1) }} %{% endif %}{% if s.min_order_applied %} · mínimo aplicado{% endif %} → {{ s.total_price|eur }}</p></details>{% endif %}
     </div>
   </div>

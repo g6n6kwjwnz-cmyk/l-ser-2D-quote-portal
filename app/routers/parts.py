@@ -145,6 +145,7 @@ async def part_from_upload(file: UploadFile, units: str = "auto") -> Part:
         raise UploadError(str(exc)) from exc
     metrics = geom.to_dict()
     metrics["preview"] = _preview_contours(contours)
+    metrics["geometry"] = _preview_contours(contours, max_points=4000)   # para anidado y exportación DXF
     return Part(filename=name, sha256=hashlib.sha256(data).hexdigest(), size_bytes=len(data),
                 metrics=metrics, svg=svg)
 

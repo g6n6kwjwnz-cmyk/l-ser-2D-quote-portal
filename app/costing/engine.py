@@ -33,6 +33,10 @@ class QuoteInput:
     quantity: int
     thickness_mm: float
     gas: str
+    # Resultado de un anidado real (opcional): sustituye la estimación por envolvente rectangular
+    nest_charged_area_mm2: float | None = None   # área de chapa consumida por pieza
+    nest_sheets: int | None = None
+    nest_utilization_pct: float | None = None
 
 
 @dataclass
@@ -67,6 +71,7 @@ class QuoteResult:
     cut_speed_m_min: float
     param_interpolated: bool
     warnings: list[str] = field(default_factory=list)
+    material_source: str = "estimado"   # «estimado» (envolvente) o «anidado» (anidado real)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -150,6 +155,14 @@ def compute_quote(geom: dict, machine, param, material, settings, q: QuoteInput)
     # (en lotes pequeños el sobrante vuelve a almacén como retal; se repercute según scrap_recovery_pct)
     sheet_util = 100 * net_area * n_sheet / sheet_area if sheet_area else 0
     env_util = 100 * net_area / (w * h) if w * h else 0
+    material_source = "estimado"
+    if q.nest_charged_area_mm2:
+        charged_area = q.nest_charged_area_mm2
+        charged_weight = charged_area * to_kg
+        sheets_needed = q.nest_sheets or sheets_needed
+        if q.nest_utilization_pct is not None:
+            sheet_util = q.nest_utilization_pct
+        material_source = "anidado"
 
     # ---------------------------------------------------------------- viabilidad
     smallest = geom.get("smallest_inner_feature_mm")
@@ -193,5 +206,5 @@ def compute_quote(geom: dict, machine, param, material, settings, q: QuoteInput)
         margin_pct=settings.margin_pct, discount_pct=discount_pct, discount_eur=r2(discount_eur),
         min_order_applied=min_applied, total_price=r2(price), unit_price=round(price / q.quantity, 3),
         cut_speed_m_min=round(param.cut_speed_m_min, 2), param_interpolated=getattr(param, "interpolated", False),
-        warnings=warnings,
+        warnings=warnings, material_source=material_source,
     )

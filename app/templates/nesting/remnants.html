@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Retales · {{ app_name }}{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Almacén de retales</h1>
+  <p class="muted">Los anidados usan primero los retales disponibles del mismo material y espesor. Al confirmar un anidado puedes dar de alta sus sobrantes.</p></div>
+  <div class="actions">{% for k, label in statuses.items() %}<a class="btn {{ 'primary' if estado == k else 'ghost' }}" href="/retales?estado={{ k }}">{{ label }}</a>{% endfor %}<a class="btn {{ 'primary' if estado == 'todos' else 'ghost' }}" href="/retales?estado=todos">Todos</a></div></div>
+{% if error %}<div class="alert error">{{ error }}</div>{% endif %}
+<details class="card"><summary><strong>+ Añadir retal</strong></summary>
+  <form method="post" action="/retales" class="fields" style="margin-top:1rem">
+    <div class="field"><label for="r-mat">Material</label><select id="r-mat" name="material_id">{% for m in materials %}<option value="{{ m.id }}">{{ m.code }}</option>{% endfor %}</select></div>
+    <div class="field"><label for="r-t">Espesor <span class="unit">mm</span></label><input id="r-t" name="thickness_mm" type="number" step="any" min="0.5" max="12" required></div>
+    <div class="field"><label for="r-w">Largo <span class="unit">mm</span></label><input id="r-w" name="width_mm" type="number" step="any" min="20" required></div>
+    <div class="field"><label for="r-h">Ancho <span class="unit">mm</span></label><input id="r-h" name="height_mm" type="number" step="any" min="20" required></div>
+    <div class="field"><label for="r-loc">Ubicación</label><input id="r-loc" name="location" maxlength="80" placeholder="Estantería, hueco…"></div>
+    <div class="field"><label for="r-notes">Notas</label><input id="r-notes" name="notes" maxlength="300"></div>
+    <div class="field"><label>&nbsp;</label><button class="btn primary" type="submit">Guardar retal</button></div>
+  </form>
+</details>
+{% if remnants %}
+<div class="table-wrap"><table>
+  <thead><tr><th>Código</th><th>Material</th><th class="num">Medidas</th><th>Ubicación</th><th>Estado</th><th></th></tr></thead>
+  <tbody>{% for r in remnants %}<tr class="{% if r.status == 'usado' %}inactive{% endif %}">
+    <td><strong>{{ r.code }}</strong><br><span class="muted small">{{ r.created_at.strftime('%d/%m/%Y') }}{% if r.source_nest_id %} · <a href="/anidado/{{ r.source_nest_id }}">de anidado</a>{% endif %}</span></td>
+    <td>{{ r.material.code }} {{ r.thickness_mm|num(1) }} mm</td>
+    <td class="num">{{ r.width_mm|num(0) }} × {{ r.height_mm|num(0) }} mm</td>
+    <td>{{ r.location or '—' }}{% if r.notes %}<br><span class="muted small">{{ r.notes }}</span>{% endif %}</td>
+    <td><span class="badge {{ 'ok' if r.status == 'disponible' else 'off' }}">{{ statuses[r.status] }}</span>{% if r.used_in_nest_id %}<br><a class="small" href="/anidado/{{ r.used_in_nest_id }}">ver anidado</a>{% endif %}</td>
+    <td class="right"><form method="post" action="/retales/{{ r.id }}" class="actions">
+      {% if r.status != 'disponible' %}<button class="btn small-btn" name="accion" value="disponible">Disponible</button>{% endif %}
+      {% if r.status == 'disponible' %}<button class="btn small-btn" name="accion" value="usado">Marcar usado</button>{% endif %}
+      <button class="btn small-btn ghost danger" name="accion" value="eliminar">Eliminar</button></form></td></tr>{% endfor %}</tbody>
+</table></div>
+{% else %}<p class="empty">No hay retales en este estado.</p>{% endif %}
+{% endblock %}
