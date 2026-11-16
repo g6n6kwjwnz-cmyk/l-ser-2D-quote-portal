@@ -13,12 +13,20 @@ from .routers import auth, catalog, machines, nesting, parts, profile, public, r
 from .seed import seed
 
 
+MIGRATIONS = [
+    # (tabla, columna, DDL) para bases de datos creadas con versiones anteriores
+    ("users", "must_change_password", "ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT 1"),
+    ("nests", "options", "ALTER TABLE nests ADD COLUMN options JSON"),
+]
+
+
 def _add_missing_columns() -> None:
     """Migración mínima para bases de datos creadas con versiones anteriores."""
-    cols = {c["name"] for c in inspect(engine).get_columns("users")}
-    if "must_change_password" not in cols:
-        with engine.begin() as conn:
-            conn.execute(text("ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT 1"))
+    insp = inspect(engine)
+    for table, col, ddl in MIGRATIONS:
+        if insp.has_table(table) and col not in {c["name"] for c in insp.get_columns(table)}:
+            with engine.begin() as conn:
+                conn.execute(text(ddl))
 
 
 @asynccontextmanager

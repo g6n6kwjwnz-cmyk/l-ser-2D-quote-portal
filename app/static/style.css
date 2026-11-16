@@ -172,8 +172,8 @@ td.thumb { width: 72px; } td.thumb svg, .line-thumb svg { width: 64px; height: 4
 @media (max-width: 1350px) { .userbox span { display: none; } }
 
 /* ---------------------------------------------------------------- anidado */
-.nest-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 1rem; align-items: start; }
-@media (max-width: 980px) { .nest-layout { grid-template-columns: 1fr; } }
+.nest-layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 1rem; align-items: start; }
+@media (max-width: 980px) { .nest-layout { grid-template-columns: minmax(0, 1fr); } }
 .nest-side .card { margin-bottom: 1rem; }
 .nest-toolbar { display: flex; justify-content: space-between; gap: .6rem; flex-wrap: wrap; margin-bottom: .6rem; }
 .sheet-tabs { display: flex; gap: .3rem; flex-wrap: wrap; }
@@ -192,3 +192,24 @@ td.thumb { width: 72px; } td.thumb svg, .line-thumb svg { width: 64px; height: 4
 .mini-thumb svg { width: 48px; height: 48px; display: block; }
 kbd { font: .8em ui-monospace, monospace; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: 0 .3em; background: var(--surface); }
 .nest-new summary, details.card > summary { cursor: pointer; }
+.nest-tools { display: flex; flex-wrap: wrap; gap: .4rem .8rem; margin-bottom: .6rem; }
+.tool-group { display: flex; gap: .2rem; flex-wrap: wrap; max-width: 100%; }
+.btn[aria-pressed="true"] { background: color-mix(in srgb, var(--primary) 15%, transparent); border-color: var(--primary); color: var(--primary); }
+.small-select { width: auto; padding: .3rem .4rem; font-size: .85rem; }
+#nest-svg.measuring { cursor: crosshair; }
+#nest-svg .piece.locked path { stroke-dasharray: 6 3; stroke-width: 2; }
+#nest-svg .cut-path { stroke: var(--cut-inner); stroke-width: 1.2; vector-effect: non-scaling-stroke; opacity: .8; }
+#nest-svg .cut-dot { fill: var(--cut-inner); }
+#nest-svg .cut-num { fill: #fff; font-weight: 700; pointer-events: none; }
+#nest-svg .measure { stroke: var(--warn); stroke-width: 2; vector-effect: non-scaling-stroke; }
+#nest-svg .measure-txt { fill: var(--warn); font-weight: 700; }
+.sel-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; gap: .4rem; align-items: end; margin-bottom: .6rem; }
+.sel-grid label { font-size: .8rem; font-weight: 600; display: flex; flex-direction: column; gap: .15rem; }
+.sel-grid input { padding: .3rem .4rem; }
+.alts { padding-left: 1.2rem; margin: 0; display: flex; flex-direction: column; gap: .6rem; font-size: .88rem; }
+.alts li.chosen { font-weight: 500; }
+.alts form { margin-top: .3rem; }
+.items-table input { width: 4.5rem; padding: .25rem .35rem; } .items-table select { padding: .25rem .35rem; font-size: .82rem; }
+.nest-side .kv dt { white-space: nowrap; }
+.items-table td.small { overflow-wrap: anywhere; min-width: 7rem; }
+.items-table select { width: auto; max-width: 9.5rem; }

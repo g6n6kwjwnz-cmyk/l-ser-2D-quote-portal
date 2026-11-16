@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
@@ -17,6 +18,7 @@ from ..web import templates
 
 router = APIRouter(tags=["anidado"])
 MAX_PARTS_PER_NEST = 2000
+_OPTIMIZING = threading.Lock()   # una optimización a la vez: usa varios núcleos y no debe saturar el servidor
 
 
 def _nest_or_404(db: Session, nest_id: int) -> Nest:
@@ -147,12 +149,22 @@ def _editor_ctx(db: Session, n: Nest) -> dict:
     siblings = []
     if n.request_id:
         siblings = db.scalars(select(Nest).where(Nest.request_id == n.request_id).order_by(Nest.id)).all()
+    formats = _active_formats(db)
     data = {"id": n.id, "gap": n.gap_mm, "edge": n.edge_mm, "editable": n.status == "borrador",
-            "rotation": n.allow_rotation, "format": {"w": n.sheet_w_mm, "h": n.sheet_h_mm},
-            "items": n.items, "parts": svc.display_paths(parts, svc.rotations(n)), "sheets": n.sheets, "eval": ev}
+            "rotation": n.allow_rotation, "step": svc.rotations(n)[1] if len(svc.rotations(n)) > 1 else 0,
+            "format": {"w": n.sheet_w_mm, "h": n.sheet_h_mm},
+            "formats": [{"w": f.width_mm, "h": f.height_mm, "name": f.name} for f in formats],
+            "items": n.items, "parts": svc.display_paths(parts), "sheets": n.sheets, "eval": ev}
+    opts = n.options or {}
     return {"n": n, "ev": ev, "parts": parts, "remnants": remnants, "siblings": siblings,
-            "statuses": NEST_STATUSES, "data_json": json.dumps(data),
+            "statuses": NEST_STATUSES, "data_json": json.dumps(data), "opts": opts,
+            "alternatives": opts.get("alternatives") or [], "formats": formats,
+            "priorities": svc.PRIORITIES, "rotation_steps": svc.ROTATION_STEPS, "item_rotations": svc.ITEM_ROTATIONS,
             "old_parts": [p for p in parts.values() if not p.detailed]}
+
+
+def _active_formats(db: Session) -> list[SheetFormat]:
+    return db.scalars(select(SheetFormat).where(SheetFormat.active.is_(True)).order_by(SheetFormat.width_mm.desc())).all()
 
 
 @router.get("/anidado/{nest_id:int}")
@@ -174,14 +186,120 @@ def nest_auto(nest_id: int, db: Session = Depends(get_db)):
     return RedirectResponse(f"/anidado/{n.id}?msg=auto", status_code=303)
 
 
-async def _sheets_from_json(request: Request, db: Session, n: Nest) -> list:
+async def _sheets_from_json(request: Request, db: Session, n: Nest, with_body: bool = False):
     if int(request.headers.get("content-length") or 0) > 2_000_000:
         raise ValueError("Petición demasiado grande.")
     body = await request.json()
+    if not isinstance(body, dict):
+        raise ValueError("Datos no válidos.")
     keys = {it["part_id"] for it in n.items}
     rem_ids = {s["source"]["remnant_id"] for s in n.sheets if s["source"].get("kind") == "retal"}
     rem_ids |= {r.id for r in svc.available_remnants(db, n)}
-    return svc.clean_sheets(body.get("sheets"), n, keys, rem_ids)
+    fmts = {(f.width_mm, f.height_mm) for f in _active_formats(db)}
+    sheets = svc.clean_sheets(body.get("sheets"), n, keys, rem_ids, fmts)
+    return (sheets, body) if with_body else sheets
+
+
+BAD_INPUT = (ValueError, KeyError, TypeError, AttributeError, IndexError)
+
+
+@router.post("/anidado/{nest_id:int}/operacion")
+async def nest_operation(nest_id: int, request: Request, db: Session = Depends(get_db)):
+    """Operaciones del editor que calcula el servidor: compactar, imán, colocar pendientes, recolocar."""
+    n = _nest_or_404(db, nest_id)
+    if n.status != "borrador":
+        return JSONResponse({"error": "El anidado está confirmado."}, status_code=409)
+    try:
+        sheets, body = await _sheets_from_json(request, db, n, with_body=True)
+        op = body.get("op")
+        idx = int(body.get("sheet", 0))
+        if op != "pendientes" and not 0 <= idx < len(sheets):
+            raise ValueError("Chapa no válida.")
+        if op == "compactar":
+            sheets = svc.op_compact(db, n, sheets, idx)
+        elif op == "iman":
+            sel = [int(i) for i in body.get("selected") or []]
+            if not sel or any(not 0 <= i < len(sheets[idx]["placements"]) for i in sel):
+                raise ValueError("Selecciona alguna pieza.")
+            sheets = svc.op_compact(db, n, sheets, idx, sel)
+        elif op == "pendientes":
+            sheets = svc.op_place_pending(db, n, sheets)
+        elif op == "recolocar":
+            sheets = svc.op_reflow(db, n, sheets, idx)
+        else:
+            raise ValueError("Operación no válida.")
+    except BAD_INPUT as exc:
+        db.rollback()
+        return JSONResponse({"error": str(exc) or "Datos no válidos."}, status_code=422)
+    ev = svc.evaluate(db, n, sheets)
+    db.rollback()
+    return {"sheets": sheets, "eval": ev}
+
+
+@router.post("/anidado/{nest_id:int}/optimizar")
+async def nest_optimize(nest_id: int, request: Request, db: Session = Depends(get_db)):
+    """«Buscar la mejor propuesta»: prueba estrategias y formatos durante el tiempo indicado."""
+    n = _nest_or_404(db, nest_id)
+    if n.status != "borrador":
+        raise HTTPException(409, "El anidado está confirmado.")
+    form = await request.form()
+    budget = {"10": 10.0, "30": 30.0, "60": 60.0}.get(str(form.get("budget")), 10.0)
+    step = int(_num(form.get("rotation_step"), 90) or 90)
+    priority = str(form.get("priority") or "material")
+    if form.get("formats") == "todos":
+        formats = [(f.width_mm, f.height_mm) for f in _active_formats(db)] or [(n.sheet_w_mm, n.sheet_h_mm)]
+    else:
+        formats = [(n.sheet_w_mm, n.sheet_h_mm)]
+    from starlette.concurrency import run_in_threadpool
+    if not _OPTIMIZING.acquire(blocking=False):
+        return RedirectResponse(f"/anidado/{n.id}?msg=ocupado", status_code=303)
+    try:
+        await run_in_threadpool(svc.optimize_nest, db, n, priority, budget, formats, step)
+    finally:
+        _OPTIMIZING.release()
+    _reprice(db, n.request_id)
+    db.commit()
+    return RedirectResponse(f"/anidado/{n.id}?msg=optimizado", status_code=303)
+
+
+@router.post("/anidado/{nest_id:int}/propuesta/{idx:int}")
+def nest_pick(nest_id: int, idx: int, db: Session = Depends(get_db)):
+    n = _nest_or_404(db, nest_id)
+    if n.status != "borrador":
+        raise HTTPException(409, "El anidado está confirmado.")
+    try:
+        svc.apply_alternative(db, n, idx)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    _reprice(db, n.request_id)
+    db.commit()
+    return RedirectResponse(f"/anidado/{n.id}?msg=propuesta", status_code=303)
+
+
+@router.post("/anidado/{nest_id:int}/piezas")
+async def nest_items(nest_id: int, request: Request, db: Session = Depends(get_db)):
+    """Cantidades y giro permitido por pieza (veta). No cambia la disposición: usa «Colocar pendientes»."""
+    n = _nest_or_404(db, nest_id)
+    if n.status != "borrador":
+        raise HTTPException(409, "El anidado está confirmado.")
+    form = await request.form()
+    items = []
+    for it in n.items:
+        q = int(_num(form.get(f"qty-{it['part_id']}"), it["quantity"]) or 0)
+        g = str(form.get(f"giro-{it['part_id']}") or it.get("giro", "libre"))
+        items.append({**it, "quantity": max(0, min(q, MAX_PARTS_PER_NEST)), "giro": g if g in svc.ITEM_ROTATIONS else "libre"})
+    if sum(i["quantity"] for i in items) > MAX_PARTS_PER_NEST:
+        return RedirectResponse(f"/anidado/{n.id}?msg=demasiadas", status_code=303)
+    n.items = items
+    # quita de la disposición los giros que ya no se permiten
+    sheets = [{"source": sh["source"], "placements": [p for p in sh["placements"]
+                                                      if svc.allowed_rotation(n, p["key"], float(p["rotation"]))]}
+              for sh in n.sheets]
+    n.sheets = sheets
+    svc.evaluate(db, n, sheets)
+    _reprice(db, n.request_id)
+    db.commit()
+    return RedirectResponse(f"/anidado/{n.id}?msg=piezas", status_code=303)
 
 
 @router.post("/anidado/{nest_id:int}/comprobar")
@@ -189,7 +307,7 @@ async def nest_check(nest_id: int, request: Request, db: Session = Depends(get_d
     n = _nest_or_404(db, nest_id)
     try:
         sheets = await _sheets_from_json(request, db, n)
-    except (ValueError, KeyError, TypeError, AttributeError) as exc:
+    except BAD_INPUT as exc:
         return JSONResponse({"error": str(exc) or "Datos no válidos."}, status_code=422)
     ev = svc.evaluate(db, n, sheets)
     db.rollback()
@@ -203,7 +321,7 @@ async def nest_save(nest_id: int, request: Request, db: Session = Depends(get_db
         return JSONResponse({"error": "El anidado está confirmado: vuelve a borrador para editarlo."}, status_code=409)
     try:
         sheets = await _sheets_from_json(request, db, n)
-    except (ValueError, KeyError, TypeError, AttributeError) as exc:
+    except BAD_INPUT as exc:
         return JSONResponse({"error": str(exc) or "Datos no válidos."}, status_code=422)
     n.sheets = sheets
     ev = svc.evaluate(db, n, sheets)

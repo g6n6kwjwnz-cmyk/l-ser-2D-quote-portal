@@ -62,8 +62,16 @@ registro de auditoría, política de retención RGPD, portal de cliente, estados
 - **Separación estándar según espesor** (`/anidado/ajustes`): tabla editable espesor máx. → separación y borde
   (de partida: ≤1 mm 2/5 · ≤3 mm 3/5 · ≤5 mm 5/8 · ≤8 mm 8/10 · ≤12 mm 12/12, +1 mm en inox/aluminio desde 6 mm).
   Formatos de chapa (3000×1500, 2500×1250, 2000×1000 y los que se añadan).
-- **Editor manual**: arrastrar, girar, quitar, añadir pendientes, mover entre chapas. El servidor comprueba cada
-  cambio y marca en rojo solapes, separaciones insuficientes o piezas fuera del borde útil.
+- **Buscar la mejor propuesta**: prueba en paralelo distintos órdenes de piezas, direcciones de llenado, giros
+  (cada 90°, 45° o 15°) y formatos de chapa durante 10 s, 30 s o 1 min; también prueba la última chapa en un formato
+  menor. Elige según la prioridad (menos chapa consumida, menos chapas o retal más grande) y guarda las 3 mejores
+  propuestas para escoger. Giro por pieza: libre, solo 180° (veta) o fijo.
+- **Editor manual**: zoom y desplazamiento, deshacer/rehacer, selección múltiple, mover, giro de 90° o a cualquier
+  ángulo, posición exacta X/Y, alinear, bloquear, imán, compactar, colocar pendientes, recolocar la chapa respetando
+  las piezas bloqueadas, mover entre chapas, medir y ver el orden de corte. El servidor comprueba cada cambio y marca
+  en rojo solapes, separaciones insuficientes o piezas fuera del borde útil.
+- **Orden y tiempo de corte** orientativos por chapa (franjas en zigzag; interiores antes que el exterior) con la
+  máquina y el gas por defecto.
 - **Retales** (`/retales`): se usan primero los retales disponibles del mismo material y espesor. Al confirmar un
   anidado, los retales usados salen del almacén y los sobrantes aprovechables (lado ≥ retal mínimo) se dan de alta.
 - **Coste**: si la petición tiene anidado sin conflictos, el material de la oferta se calcula con la chapa realmente
