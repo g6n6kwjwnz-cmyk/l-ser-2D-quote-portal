@@ -24,7 +24,7 @@
   let issues = [];
   let metrics = null, baseMetrics = null;
   let tool = "select";
-  const show = { grid: true, dirs: false, nums: false, pierce: true, nodes: false };
+  const show = { grid: true, dirs: false, nums: false, pierce: true, nodes: false, dims: false };
   const view = { cx: 0, cy: 0, s: 1 };   // centro en mm y escala px/mm
   let undo = [], redo = [];
   let dirty = false, saving = false;
@@ -42,7 +42,7 @@
       bg: v("--surface", "#fff"), grid: v("--border", "#e2e5ea"), text: v("--muted", "#5f6b7a"),
       exterior: v("--cut-outer", "#0f6fde"), interior: v("--cut-inner", "#d6336c"), abierto: v("--cut-open", "#e08a00"),
       pierce: v("--pierce", "#1b9e5a"), sel: v("--primary", "#0f6fde"), err: v("--danger", "#c62828"), warn: v("--warn", "#a15c00"),
-      ink: v("--text", "#16191f"),
+      ink: v("--text", "#16191f"), mark: "#8b5cf6",
     };
   }
   readColors();
@@ -131,15 +131,17 @@
 
   // ------------------------------------------------------------------ vista
   let W = 0, H = 0, dpr = 1;
+  let autoFit = true;      // hasta que el usuario mueva o amplíe la vista, se reajusta al cambiar el tamaño
   function resize() {
     const r = canvas.getBoundingClientRect();
     dpr = window.devicePixelRatio || 1;
     W = r.width; H = r.height;
     canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
-    draw();
+    if (autoFit && C.length) fit(); else draw();
   }
   const toScreen = (x, y) => [(x - view.cx) * view.s + W / 2, H / 2 - (y - view.cy) * view.s];
   const toWorld = (sx, sy) => [(sx - W / 2) / view.s + view.cx, (H / 2 - sy) / view.s + view.cy];
+  canvas.edToScreen = (x, y) => toScreen(x, y);   // para pruebas automáticas
   function fit(indices) {
     const [a, b, c, d] = allBox(indices);
     const w = Math.max(c - a, 1), h = Math.max(d - b, 1);
@@ -150,6 +152,7 @@
     draw();
   }
   function zoomAt(sx, sy, factor) {
+    autoFit = false;
     const [wx, wy] = toWorld(sx, sy);
     view.s = Math.max(0.005, Math.min(2000, view.s * factor));
     view.cx = wx - (sx - W / 2) / view.s;
@@ -189,20 +192,22 @@
       if (isSel || i === hover) {
         ctx.strokeStyle = colors.sel; ctx.globalAlpha = isSel ? 0.35 : 0.2; ctx.lineWidth = 7; ctx.stroke(); ctx.globalAlpha = 1;
       }
-      ctx.strokeStyle = colors[c.kind] || colors.exterior;
+      const mark = c.layer === "marcado";
+      ctx.strokeStyle = mark ? colors.mark : (colors[c.kind] || colors.exterior);
       ctx.lineWidth = isSel ? 2.2 : 1.4;
       if (!c.closed) ctx.setLineDash([6, 4]);
+      if (mark) ctx.setLineDash([2, 3]);
       ctx.stroke(); ctx.setLineDash([]);
       if (show.nodes && view.s * (bb[2] - bb[0] + bb[3] - bb[1]) > 30) {
         ctx.fillStyle = ctx.strokeStyle;
         for (const p of c.pts) { const [sx, sy] = toScreen(p[0], p[1]); ctx.fillRect(sx - 1.5, sy - 1.5, 3, 3); }
       }
-      if (show.pierce) {
+      if (show.pierce && !mark) {
         const [sx, sy] = toScreen(c.pts[0][0], c.pts[0][1]);
         ctx.fillStyle = colors.pierce; ctx.beginPath(); ctx.arc(sx, sy, isSel ? 4 : 3, 0, 2 * Math.PI); ctx.fill();
       }
       if (show.dirs) paintArrows(c);
-      if (!c.closed) {   // extremos de los abiertos
+      if (!c.closed && !mark) {   // extremos de los abiertos
         const [ex, ey] = toScreen(c.pts[c.pts.length - 1][0], c.pts[c.pts.length - 1][1]);
         ctx.strokeStyle = colors.abierto; ctx.lineWidth = 1.5; ctx.strokeRect(ex - 4, ey - 4, 8, 8);
         const [sx, sy] = toScreen(c.pts[0][0], c.pts[0][1]); ctx.strokeRect(sx - 4, sy - 4, 8, 8);
@@ -246,8 +251,9 @@
       if (snapPt.kind === "centro") { ctx.beginPath(); ctx.arc(sx, sy, 6, 0, 2 * Math.PI); ctx.stroke(); }
       else ctx.strokeRect(sx - 5, sy - 5, 10, 10);
     }
+    cadPaint();
     // ventana de selección
-    if (drag && drag.mode === "box") {
+    if (drag && (drag.mode === "box" || drag.mode === "nodebox")) {
       const x = Math.min(drag.sx, drag.cx), y = Math.min(drag.sy, drag.cy);
       const w = Math.abs(drag.cx - drag.sx), h = Math.abs(drag.cy - drag.sy);
       const crossing = drag.cx < drag.sx;
@@ -338,9 +344,9 @@
   function selectedOrAll() { return sel.size ? [...sel] : C.map((_, i) => i); }
 
   // ------------------------------------------------------------------ historial
-  const snapshot = () => JSON.stringify(C.map((c) => [c.pts, c.closed, c.kind]));
+  const snapshot = () => JSON.stringify(C.map((c) => [c.pts, c.closed, c.kind, c.layer || "corte"]));
   function restore(s) {
-    C = JSON.parse(s).map(([pts, closed, kind]) => ({ pts, closed, kind }));
+    C = JSON.parse(s).map(([pts, closed, kind, layer]) => ({ pts, closed, kind, layer }));
     sel = new Set([...sel].filter((i) => i < C.length));
     refreshBoxes();
   }
@@ -379,7 +385,9 @@
     if (!r.ok) throw new Error((data && data.error) || (r.status === 401 ? "Sesión caducada: vuelve a iniciar sesión." : `Error ${r.status}`));
     return data;
   }
-  const payload = () => C.map((c) => ({ points: c.pts.map(([x, y]) => [Math.round(x * 1e4) / 1e4, Math.round(y * 1e4) / 1e4]), closed: c.closed }));
+  const rnd = (pts) => pts.map(([x, y]) => [Math.round(x * 1e4) / 1e4, Math.round(y * 1e4) / 1e4]);
+  const payload = () => C.map((c) => ({ points: rnd(c.pts), closed: c.closed, layer: c.layer || "corte" }));
+  const cutIndex = () => C.map((c, i) => (c.layer === "marcado" ? -1 : i)).filter((i) => i >= 0);
   function rulesBody() {
     return { thickness_mm: String($("ed-thick").value).replace(",", "."), family: $("ed-family").value };
   }
@@ -391,11 +399,14 @@
     if (!C.length) { metrics = null; issues = []; renderSide(); draw(); return; }
     const seq = ++analysisSeq;
     try {
-      const res = await api(`/piezas/${PART}/geometria/analizar`, { contours: payload(), ...rulesBody() });
+      const map = cutIndex();
+      if (!map.length) { metrics = null; issues = []; renderSide(); draw(); return; }
+      const res = await api(`/piezas/${PART}/geometria/analizar`, { contours: map.map((i) => ({ points: rnd(C[i].pts), closed: C[i].closed })), ...rulesBody() });
       if (seq !== analysisSeq) return;     // llegó una respuesta antigua
-      metrics = res.metrics; issues = res.issues;
+      metrics = res.metrics;
+      issues = res.issues.map((it) => ({ ...it, contours: it.contours.map((k) => map[k]) }));
       if (!baseMetrics) baseMetrics = metrics;
-      if (res.kinds.length === C.length) res.kinds.forEach((k, i) => (C[i].kind = k));
+      if (res.kinds.length === map.length) res.kinds.forEach((k, j) => { if (C[map[j]]) C[map[j]].kind = k; });
       renderSide(); draw();
     } catch (e) {
       if (seq === analysisSeq) { $("ed-metrics").innerHTML = `<dt class="ed-err">${esc(e.message)}</dt><dd></dd>`; }
@@ -409,7 +420,7 @@
       const res = await api(`/piezas/${PART}/geometria`, { contours: payload(), as_new: !!asNew });
       dirty = false;
       if (res.redirect) { window.location.href = res.redirect; return; }
-      C = res.contours.map((c) => ({ pts: c.points, closed: c.closed, kind: c.kind }));
+      C = res.contours.map((c) => ({ pts: c.points, closed: c.closed, kind: c.kind, layer: c.layer || "corte" }));
       sel.clear(); undo = []; redo = [];
       refreshBoxes(); setDirty(false, "Guardado. Recalcula el coste en la ficha de la pieza.");
       scheduleAnalysis(); draw(); renderSide();
@@ -473,7 +484,7 @@
     issues.forEach((it) => it.contours.forEach((i) => { if (bad.get(i) !== "error") bad.set(i, it.severity); }));
     const rowsHtml = C.slice(0, 2000).map((c, i) =>
       `<tr data-row="${i}" class="${sel.has(i) ? "on" : ""}"><td>${i + 1}${bad.has(i) ? ` <span class="dot ${bad.get(i)}" title="${bad.get(i)}"></span>` : ""}</td>` +
-      `<td><span class="sw ${c.kind}"></span>${c.kind}</td><td class="num">${fmt(lengthOf(c.pts), 1)}</td></tr>`).join("");
+      `<td><span class="sw ${c.layer === "marcado" ? "marcado" : c.kind}"></span>${c.layer === "marcado" ? "marcado" : c.kind}</td><td class="num">${fmt(lengthOf(c.pts), 1)}</td></tr>`).join("");
     $("ed-list").innerHTML = rowsHtml + (C.length > 2000 ? `<tr><td colspan="3" class="muted">… ${C.length - 2000} más</td></tr>` : "");
   }
 
@@ -710,13 +721,641 @@
     saveas() { save(true); },
   };
 
+  // ================================================================== herramientas CAD
+  // Dibujo con coordenadas, nodos/estirar, empalme, chaflán, partir, recortar, alargar, ángulos,
+  // equidistancia y booleanas (servidor), matrices, capas de corte/marcado, cotas e imanes.
+  const snapCfg = { obj: true, grid: false, ortho: false };
+  const cad = { pts: [], cur: null, nodeSel: new Set(), hoverNode: null, brk: null, angle: [] };
+  const toolVals = { fillet: 5, chamfer: 3 };
+  let lastPt = null;
+
+  function cadReset() { cad.pts = []; cad.cur = null; cad.brk = null; cad.angle = []; cad.nodeSel.clear(); cad.hoverNode = null; }
+  function toggleSnap(k) {
+    snapCfg[k] = !snapCfg[k];
+    document.querySelectorAll(`[data-snap="${k}"]`).forEach((b) => b.setAttribute("aria-pressed", String(snapCfg[k])));
+    flash({ obj: "Imán a objetos", grid: "Imán a rejilla", ortho: "Orto (solo horizontal/vertical)" }[k] + (snapCfg[k] ? " activado." : " desactivado."));
+  }
+  app.querySelectorAll("[data-snap]").forEach((b) => b.addEventListener("click", () => toggleSnap(b.dataset.snap)));
+
+  const ring = (c) => (c.closed ? c.pts.slice(0, -1) : c.pts.slice());
+  const setRing = (c, r) => { c.pts = c.closed ? r.concat([[...r[0]]]) : r; };
+  const unit = (v) => { const l = Math.hypot(v[0], v[1]) || 1; return [v[0] / l, v[1] / l]; };
+  const sub = (a, b) => [a[0] - b[0], a[1] - b[1]];
+  const lerp = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+
+  function segInter(p, p2, q, q2) {   // intersección de segmentos: {t, u, pt} o null
+    const r = sub(p2, p), s = sub(q2, q);
+    const den = r[0] * s[1] - r[1] * s[0];
+    if (Math.abs(den) < 1e-12) return null;
+    const qp = sub(q, p);
+    const t = (qp[0] * s[1] - qp[1] * s[0]) / den, u = (qp[0] * r[1] - qp[1] * r[0]) / den;
+    if (t < -1e-9 || t > 1 + 1e-9 || u < -1e-9 || u > 1 + 1e-9) return null;
+    return { t, u, pt: lerp(p, p2, t) };
+  }
+  function nearestOn(c, p) {          // punto más cercano de un contorno: {k (segmento), q, s (longitud acumulada), d}
+    let best = { d: Infinity }, acc = 0;
+    for (let k = 1; k < c.pts.length; k++) {
+      const l = dist(c.pts[k - 1], c.pts[k]);
+      const r = segDist(p, c.pts[k - 1], c.pts[k]);
+      if (r.d < best.d) best = { k, q: r.q, s: acc + r.t * l, d: r.d };
+      acc += l;
+    }
+    return best;
+  }
+  function subPath(pts, s0, s1) {      // tramo de la polilínea entre dos longitudes s0 < s1
+    const out = []; let acc = 0;
+    for (let k = 1; k < pts.length; k++) {
+      const l = dist(pts[k - 1], pts[k]), a = acc, b = acc + l;
+      if (b >= s0 && a <= s1 && l > 0) {
+        if (!out.length) out.push(lerp(pts[k - 1], pts[k], Math.max(0, (s0 - a) / l)));
+        if (b <= s1) out.push([...pts[k]]); else { out.push(lerp(pts[k - 1], pts[k], (s1 - a) / l)); break; }
+      }
+      acc = b;
+    }
+    return out.filter((p, i) => !i || dist(p, out[i - 1]) > 1e-7);
+  }
+  function crossings(i) {              // longitudes s donde el contorno i corta a los demás (y a sí mismo)
+    const c = C[i], bb = boxes[i], out = [];
+    let acc = 0;
+    const segs = [];
+    for (let k = 1; k < c.pts.length; k++) { const l = dist(c.pts[k - 1], c.pts[k]); segs.push([c.pts[k - 1], c.pts[k], acc, l]); acc += l; }
+    C.forEach((o, j) => {
+      const ob = boxes[j];
+      if (ob[0] > bb[2] || ob[2] < bb[0] || ob[1] > bb[3] || ob[3] < bb[1]) return;
+      for (const [a, b, s0, l] of segs) {
+        const sa = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])];
+        for (let k = 1; k < o.pts.length; k++) {
+          const q = o.pts[k - 1], q2 = o.pts[k];
+          if (Math.max(q[0], q2[0]) < sa[0] || Math.min(q[0], q2[0]) > sa[2] || Math.max(q[1], q2[1]) < sa[1] || Math.min(q[1], q2[1]) > sa[3]) continue;
+          if (j === i && (Math.abs(s0 - (segs[k - 1] ? segs[k - 1][2] : -1)) < 1e-9 || dist(a, q2) < 1e-9 || dist(b, q) < 1e-9 || dist(a, q) < 1e-9)) continue;
+          const r = segInter(a, b, q, q2);
+          if (r) out.push(s0 + r.t * l);
+        }
+      }
+    });
+    return [...new Set(out.map((v) => Math.round(v * 1e6) / 1e6))].sort((x, y) => x - y);
+  }
+  function arc3(a, m, b) {             // arco por tres puntos
+    const d = 2 * (a[0] * (m[1] - b[1]) + m[0] * (b[1] - a[1]) + b[0] * (a[1] - m[1]));
+    if (Math.abs(d) < 1e-9) return [a, b];
+    const ux = ((a[0] ** 2 + a[1] ** 2) * (m[1] - b[1]) + (m[0] ** 2 + m[1] ** 2) * (b[1] - a[1]) + (b[0] ** 2 + b[1] ** 2) * (a[1] - m[1])) / d;
+    const uy = ((a[0] ** 2 + a[1] ** 2) * (b[0] - m[0]) + (m[0] ** 2 + m[1] ** 2) * (a[0] - b[0]) + (b[0] ** 2 + b[1] ** 2) * (m[0] - a[0])) / d;
+    const r = dist([ux, uy], a);
+    const ang = (p) => Math.atan2(p[1] - uy, p[0] - ux);
+    const a0 = ang(a), am = ang(m), a1 = ang(b);
+    const norm = (x) => ((x % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+    let sweep = norm(a1 - a0);
+    if (norm(am - a0) > sweep) sweep -= 2 * Math.PI;   // el punto medio decide el sentido
+    const n = arcSegments(r, sweep);
+    const out = [];
+    for (let i = 0; i <= n; i++) { const t = a0 + (sweep * i) / n; out.push([ux + r * Math.cos(t), uy + r * Math.sin(t)]); }
+    out[0] = [...a]; out[n] = [...b];
+    return out;
+  }
+  function cornerAt(c, ri, mode, val) {   // empalme (radio) o chaflán (distancia) en el vértice ri del anillo
+    const r = ring(c), n = r.length;
+    if (!c.closed && (ri === 0 || ri === n - 1)) return "Los extremos de un contorno abierto no son esquinas.";
+    const v = r[ri], a = r[(ri - 1 + n) % n], b = r[(ri + 1) % n];
+    const u1 = unit(sub(a, v)), u2 = unit(sub(b, v));
+    const cos = Math.max(-1, Math.min(1, u1[0] * u2[0] + u1[1] * u2[1]));
+    const th = Math.acos(cos);
+    if (th > Math.PI - 0.02) return "Esa esquina es prácticamente recta en línea; no hay nada que redondear.";
+    const t = mode === "fillet" ? val / Math.tan(th / 2) : val;
+    if (t > dist(a, v) + 1e-9 || t > dist(b, v) + 1e-9) return `El ${mode === "fillet" ? "radio" : "chaflán"} es demasiado grande para los tramos de esa esquina.`;
+    const p1 = [v[0] + u1[0] * t, v[1] + u1[1] * t], p2 = [v[0] + u2[0] * t, v[1] + u2[1] * t];
+    let ins = [p1, p2];
+    if (mode === "fillet") {
+      const bis = unit([u1[0] + u2[0], u1[1] + u2[1]]);
+      const h = val / Math.sin(th / 2);
+      const cc = [v[0] + bis[0] * h, v[1] + bis[1] * h];
+      const s1 = Math.atan2(p1[1] - cc[1], p1[0] - cc[0]);
+      let sw = Math.atan2(p2[1] - cc[1], p2[0] - cc[0]) - s1;
+      while (sw > Math.PI) sw -= 2 * Math.PI;
+      while (sw < -Math.PI) sw += 2 * Math.PI;
+      const m = arcSegments(val, sw);
+      ins = [];
+      for (let i = 0; i <= m; i++) { const q = s1 + (sw * i) / m; ins.push([cc[0] + val * Math.cos(q), cc[1] + val * Math.sin(q)]); }
+    }
+    const nr = r.slice(0, ri).concat(ins, r.slice(ri + 1));
+    const clean = nr.filter((p, i) => !i || dist(p, nr[i - 1]) > 1e-7);
+    if (c.closed && dist(clean[0], clean[clean.length - 1]) < 1e-7) clean.pop();
+    setRing(c, clean);
+    return null;
+  }
+  function nearestNode(sx, sy, tolPx) {
+    const p = toWorld(sx, sy), tol = tolPx / view.s;
+    let best = null, bd = tol;
+    C.forEach((c, i) => {
+      const bb = boxes[i];
+      if (p[0] < bb[0] - tol || p[0] > bb[2] + tol || p[1] < bb[1] - tol || p[1] > bb[3] + tol) return;
+      ring(c).forEach((q, k) => { const d = dist(p, q); if (d < bd) { bd = d; best = { i, k }; } });
+    });
+    return best;
+  }
+  function cornerIndices(c) {           // esquinas «reales» (no los vértices de arcos discretizados)
+    const r = ring(c), n = r.length, out = [];
+    for (let k = 0; k < n; k++) {
+      if (!c.closed && (k === 0 || k === n - 1)) continue;
+      const a = r[(k - 1 + n) % n], b = r[(k + 1) % n];
+      const u1 = unit(sub(r[k], a)), u2 = unit(sub(b, r[k]));
+      const turn = Math.acos(Math.max(-1, Math.min(1, u1[0] * u2[0] + u1[1] * u2[1])));
+      if (turn > (12 * Math.PI) / 180) out.push(k);
+    }
+    return out;
+  }
+
+  // ---------- captura de puntos con imanes, orto y línea de comandos
+  function snapIntersection(p, tol) {
+    const segs = [];
+    C.forEach((c, i) => {
+      const bb = boxes[i];
+      if (p[0] < bb[0] - tol || p[0] > bb[2] + tol || p[1] < bb[1] - tol || p[1] > bb[3] + tol) return;
+      for (let k = 1; k < c.pts.length && segs.length < 400; k++) {
+        if (segDist(p, c.pts[k - 1], c.pts[k]).d < tol) segs.push([c.pts[k - 1], c.pts[k], i]);
+      }
+    });
+    let best = null, bd = tol;
+    for (let a = 0; a < segs.length; a++) for (let b = a + 1; b < segs.length; b++) {
+      const r = segInter(segs[a][0], segs[a][1], segs[b][0], segs[b][1]);
+      if (r && (r.t > 1e-6 && r.t < 1 - 1e-6 || segs[a][2] !== segs[b][2])) { const d = dist(p, r.pt); if (d < bd) { bd = d; best = r.pt; } }
+    }
+    return best;
+  }
+  function pickPoint(sx, sy, ev, tolPx) {
+    let p = toWorld(sx, sy);
+    snapPt = null;
+    if (snapCfg.obj) {
+      const inter = snapIntersection(p, (tolPx * 1.2) / view.s);
+      const sn = snapAt(sx, sy, tolPx * 1.6);
+      if (inter && (!sn || dist(p, inter) <= dist(p, sn.p))) snapPt = { p: inter, kind: "intersección" };
+      else if (sn) snapPt = sn;
+    }
+    if (snapPt) return [...snapPt.p];
+    const ref = cad.pts.length ? cad.pts[cad.pts.length - 1] : null;
+    if (ref && (snapCfg.ortho || ev.shiftKey)) {
+      if (Math.abs(p[0] - ref[0]) > Math.abs(p[1] - ref[1])) p = [p[0], ref[1]]; else p = [ref[0], p[1]];
+    }
+    if (snapCfg.grid) { const g = niceStep(25); p = [Math.round(p[0] / g) * g, Math.round(p[1] / g) * g]; }
+    return p;
+  }
+  function parseCmd(txt) {             // «x;y» o «x,y» absoluto · «@dx;dy» relativo · «@d<ángulo» polar · «d» distancia en la dirección del cursor
+    const t = txt.trim().replace(/\s+/g, "");
+    if (!t) return null;
+    const num = (v) => Number(v.replace(",", "."));
+    const ref = cad.pts.length ? cad.pts[cad.pts.length - 1] : (lastPt || [0, 0]);
+    let m;
+    if ((m = t.match(/^@?(-?[\d.,]+)<(-?[\d.,]+)$/))) {
+      const d = num(m[1]), a = (num(m[2]) * Math.PI) / 180;
+      return [ref[0] + d * Math.cos(a), ref[1] + d * Math.sin(a)];
+    }
+    if ((m = t.match(/^(@?)(-?\d+(?:[.,]\d+)?)[;](-?\d+(?:[.,]\d+)?)$/)) || (m = t.match(/^(@?)(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/))) {
+      const x = num(m[2]), y = num(m[3]);
+      return m[1] ? [ref[0] + x, ref[1] + y] : [x, y];
+    }
+    if ((m = t.match(/^(-?\d+(?:[.,]\d+)?)$/))) {
+      const d = num(m[1]);
+      if (CAD_TOOLS[tool].scalar) return { scalar: d };
+      if (!cad.pts.length) return null;
+      const dir = cad.cur ? unit(sub(cad.cur, ref)) : [1, 0];
+      return [ref[0] + dir[0] * d, ref[1] + dir[1] * d];
+    }
+    return null;
+  }
+  const cmd = $("ed-cmd");
+  cmd.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") { cmd.value = ""; cadFinish(); canvas.focus(); return; }
+    if (ev.key !== "Enter") return;
+    ev.preventDefault();
+    const v = cmd.value.trim().toLowerCase();
+    cmd.value = "";
+    if (!v) { cadFinish(); return; }
+    if (v === "c" || v === "cerrar") { cadFinish(true); return; }
+    if (v === "d" || v === "deshacer") { cad.pts.pop(); draw(); return; }
+    const p = parseCmd(v);
+    if (!p) { flash("No entiendo esa entrada. Ejemplos: 100;50 · @20;0 · @30<45 · 25"); return; }
+    cadPoint(p.scalar != null ? p : p, true);
+  });
+
+  // ---------- definición de herramientas
+  const CAD_TOOLS = {
+    draw: { points: true, hint: "Polilínea: pulsa puntos o escribe coordenadas (100;50 · @20;0 · @30<45 · 25). Pulsa el primer punto o escribe C para cerrar; Intro termina abierta." },
+    arc: { points: true, hint: "Arco: inicio, un punto intermedio y final." },
+    dcircle: { points: true, scalar: true, hint: "Círculo: pulsa el centro y luego un punto del borde, o escribe el radio." },
+    drect: { points: true, hint: "Rectángulo: pulsa dos esquinas opuestas o escribe @ancho;alto para la segunda." },
+    nodes: { hint: "Nodos / estirar: arrastra un vértice, o selecciona varios con ventana y arrástralos. Doble clic en un tramo: añadir vértice; doble clic en un vértice: quitarlo." },
+    fillet: { hint: "Empalme: pulsa una esquina, o un tramo para redondear todas las esquinas de ese contorno.",
+      ask: (done) => ask("Empalme (redondeo de esquinas)", [{ name: "v", label: "Radio", unit: "mm", value: toolVals.fillet, min: 0.01, max: 5000 }], (v) => { toolVals.fillet = v.v; CAD_TOOLS.fillet.asked = true; setTimeout(done); }) },
+    chamfer: { hint: "Chaflán: pulsa una esquina, o un tramo para achaflanar todas las esquinas de ese contorno.",
+      ask: (done) => ask("Chaflán", [{ name: "v", label: "Distancia", unit: "mm", value: toolVals.chamfer, min: 0.01, max: 5000 }], (v) => { toolVals.chamfer = v.v; CAD_TOOLS.chamfer.asked = true; setTimeout(done); }) },
+    brk: { hint: "Partir: en un contorno abierto, pulsa dónde partirlo; en uno cerrado, pulsa dos puntos." },
+    trim: { hint: "Recortar: pulsa el tramo que sobra; se corta hasta los cruces con otros contornos." },
+    extend: { hint: "Alargar: pulsa cerca del extremo de un contorno abierto; se prolonga hasta el contorno más próximo." },
+    angle: { points: true, hint: "Ángulo: pulsa el vértice y luego un punto en cada lado." },
+  };
+  // al volver a elegir empalme/chaflán se vuelve a preguntar el valor
+  app.querySelectorAll('[data-tool="fillet"],[data-tool="chamfer"]').forEach((b) => b.addEventListener("click", () => {}, { capture: true }));
+  app.querySelectorAll('[data-tool="fillet"],[data-tool="chamfer"]').forEach((b) => b.addEventListener("pointerdown", () => { CAD_TOOLS[b.dataset.tool].asked = false; }));
+
+  function cadPoint(p, typed) {
+    if (p.scalar != null) {             // radio escrito (círculo)
+      if (tool === "dcircle" && cad.pts.length === 1 && p.scalar > 0) { addCircleAt(cad.pts[0], p.scalar); return; }
+      flash("Escribe un punto."); return;
+    }
+    lastPt = p;
+    if (tool === "draw") {
+      if (cad.pts.length >= 2 && dist(p, cad.pts[0]) < 6 / view.s && !typed) { cadFinish(true); return; }
+      cad.pts.push(p);
+      flash(`${cad.pts.length} punto(s). Último: ${fmt(p[0])} ; ${fmt(p[1])}${cad.pts.length > 1 ? ` · tramo ${fmt(dist(cad.pts[cad.pts.length - 2], p))} mm` : ""}`);
+    } else if (tool === "arc") {
+      cad.pts.push(p);
+      if (cad.pts.length === 3) {
+        const pts = arc3(cad.pts[0], cad.pts[1], cad.pts[2]);
+        commit("Arco", () => { C.push({ pts, closed: false, kind: "abierto", layer: "corte" }); sel = new Set([C.length - 1]); });
+        cad.pts = [];
+      }
+    } else if (tool === "dcircle") {
+      if (!cad.pts.length) cad.pts.push(p); else addCircleAt(cad.pts[0], dist(cad.pts[0], p));
+    } else if (tool === "drect") {
+      if (!cad.pts.length) cad.pts.push(p);
+      else {
+        const a = cad.pts[0];
+        const x = Math.min(a[0], p[0]), y = Math.min(a[1], p[1]), w = Math.abs(p[0] - a[0]), h = Math.abs(p[1] - a[1]);
+        if (w < 1e-3 || h < 1e-3) { flash("El rectángulo necesita ancho y alto."); return; }
+        commit("Rectángulo", () => { C.push({ pts: roundRectPts(x, y, w, h, 0), closed: true, kind: "interior", layer: "corte" }); sel = new Set([C.length - 1]); });
+        cad.pts = []; flash(`Rectángulo ${fmt(w)} × ${fmt(h)} mm.`);
+      }
+    } else if (tool === "angle") {
+      cad.pts.push(p);
+      if (cad.pts.length === 3) {
+        const [v, a, b] = cad.pts;
+        const u1 = unit(sub(a, v)), u2 = unit(sub(b, v));
+        const ang = (Math.acos(Math.max(-1, Math.min(1, u1[0] * u2[0] + u1[1] * u2[1]))) * 180) / Math.PI;
+        flash(`Ángulo: ${fmt(ang, 2)}° (complementario ${fmt(180 - ang, 2)}°, exterior ${fmt(360 - ang, 2)}°)`);
+        cad.angle = cad.pts.slice(); cad.pts = [];
+      }
+    }
+    draw();
+  }
+  function addCircleAt(c, r) {
+    if (r < 0.01) { flash("Radio demasiado pequeño."); return; }
+    commit("Círculo", () => { C.push({ pts: circlePts(c[0], c[1], r), closed: true, kind: "interior", layer: "corte" }); sel = new Set([C.length - 1]); });
+    cad.pts = []; flash(`Círculo Ø ${fmt(r * 2, 3)} mm en ${fmt(c[0])} ; ${fmt(c[1])}.`);
+  }
+  function cadFinish(close) {
+    if (tool === "draw" && cad.pts.length >= 2) {
+      const pts = cad.pts.map((p) => [...p]);
+      const closed = !!close && pts.length >= 3;
+      if (closed) pts.push([...pts[0]]);
+      commit("Polilínea", () => { C.push({ pts, closed, kind: closed ? "interior" : "abierto", layer: "corte" }); sel = new Set([C.length - 1]); });
+      flash(closed ? "Contorno cerrado añadido." : "Polilínea abierta añadida.");
+    }
+    cad.pts = []; cad.cur = null; draw();
+  }
+
+  function cadDown(sx, sy, ev, tolPx) {
+    const t = CAD_TOOLS[tool];
+    if (t.points) { cadPoint(pickPoint(sx, sy, ev, tolPx), false); return; }
+    const p = toWorld(sx, sy);
+    if (tool === "nodes") {
+      const nn = nearestNode(sx, sy, tolPx + 2);
+      if (nn) {
+        const key = `${nn.i}:${nn.k}`;
+        if (!cad.nodeSel.has(key)) { if (!(ev.shiftKey || ev.ctrlKey)) cad.nodeSel.clear(); cad.nodeSel.add(key); }
+        drag = { mode: "node", sx, sy, cx: sx, cy: sy, w0: p, before: snapshot(), moved: false,
+          orig: [...cad.nodeSel].map((k) => { const [i, j] = k.split(":").map(Number); return [i, j, [...ring(C[i])[j]]]; }) };
+      } else {
+        drag = { mode: "nodebox", sx, sy, cx: sx, cy: sy, additive: ev.shiftKey || ev.ctrlKey };
+      }
+      draw(); return;
+    }
+    const hit = hitTest(sx, sy, tolPx);
+    if (hit < 0) { flash("Pulsa sobre un contorno."); return; }
+    const c = C[hit], near = nearestOn(c, p);
+    if (tool === "fillet" || tool === "chamfer") {
+      const val = toolVals[tool];
+      const nn = nearestNode(sx, sy, tolPx + 4);
+      if (nn && nn.i === hit) {
+        commit(tool === "fillet" ? "Empalme" : "Chaflán", () => { const e = cornerAt(C[hit], nn.k, tool, val); if (e) { flash(e); return false; } });
+      } else {
+        const ks = cornerIndices(c).reverse();     // de atrás hacia delante para no mover los índices
+        if (!ks.length) { flash("Ese contorno no tiene esquinas vivas."); return; }
+        let ok = 0, ko = 0;
+        commit(tool === "fillet" ? "Empalme" : "Chaflán", () => { for (const k of ks) { cornerAt(C[hit], k, tool, val) ? ko++ : ok++; } if (!ok) return false; });
+        flash(`${ok} esquina(s) ${tool === "fillet" ? "redondeadas" : "achaflanadas"}${ko ? `; ${ko} no admiten ese valor` : ""}.`);
+      }
+      return;
+    }
+    if (tool === "brk") {
+      if (!c.closed) {
+        const L = lengthOf(c.pts);
+        if (near.s < 1e-6 || near.s > L - 1e-6) { flash("Pulsa en un punto interior del tramo."); return; }
+        commit("Partir", () => {
+          const a = subPath(c.pts, 0, near.s), b = subPath(c.pts, near.s, L);
+          C.splice(hit, 1, { pts: a, closed: false, kind: "abierto", layer: c.layer }, { pts: b, closed: false, kind: "abierto", layer: c.layer });
+          sel = new Set([hit, hit + 1]);
+        });
+        flash("Contorno partido en dos."); return;
+      }
+      if (!cad.brk || cad.brk.i !== hit) { cad.brk = { i: hit, s: near.s, q: near.q }; flash("Ahora pulsa el segundo punto de corte en el mismo contorno."); draw(); return; }
+      const L = lengthOf(c.pts), s0 = Math.min(cad.brk.s, near.s), s1 = Math.max(cad.brk.s, near.s);
+      if (s1 - s0 < 1e-6) { flash("Los dos puntos coinciden."); return; }
+      commit("Partir", () => {
+        const a = subPath(c.pts, s0, s1);
+        const b = subPath(c.pts, s1, L).concat(subPath(c.pts, 0, s0).slice(1));
+        C.splice(hit, 1, { pts: a, closed: false, kind: "abierto", layer: c.layer }, { pts: b, closed: false, kind: "abierto", layer: c.layer });
+        sel = new Set([hit, hit + 1]);
+      });
+      cad.brk = null; flash("Contorno cerrado partido en dos tramos abiertos."); return;
+    }
+    if (tool === "trim") {
+      const xs = crossings(hit), L = lengthOf(c.pts);
+      if (!xs.length || (c.closed && xs.length < 2)) { flash("Ese contorno no cruza con otros: no hay nada que recortar (usa Borrar)."); return; }
+      commit("Recortar", () => {
+        const before = xs.filter((v) => v < near.s - 1e-9), after = xs.filter((v) => v > near.s + 1e-9);
+        const pieces = [];
+        if (!c.closed) {
+          const lo = before.length ? before[before.length - 1] : 0, hi = after.length ? after[0] : L;
+          if (lo > 1e-6) pieces.push(subPath(c.pts, 0, lo));
+          if (hi < L - 1e-6) pieces.push(subPath(c.pts, hi, L));
+        } else {
+          const lo = before.length ? before[before.length - 1] : xs[xs.length - 1];
+          const hi = after.length ? after[0] : xs[0];
+          // queda desde hi hasta lo (dando la vuelta si hace falta)
+          const keep = hi < lo ? subPath(c.pts, hi, lo) : subPath(c.pts, hi, L).concat(subPath(c.pts, 0, lo).slice(1));
+          pieces.push(keep);
+        }
+        const repl = pieces.filter((p) => p.length >= 2).map((p) => ({ pts: p, closed: false, kind: "abierto", layer: c.layer }));
+        C.splice(hit, 1, ...repl);
+        sel.clear();
+      });
+      flash("Tramo recortado."); return;
+    }
+    if (tool === "extend") {
+      if (c.closed) { flash("Solo se alargan contornos abiertos."); return; }
+      const L = lengthOf(c.pts);
+      const atEnd = near.s > L / 2;
+      const pts = c.pts, n = pts.length;
+      const tip = atEnd ? pts[n - 1] : pts[0], prev = atEnd ? pts[n - 2] : pts[1];
+      const dir = unit(sub(tip, prev));
+      const far = [tip[0] + dir[0] * 1e5, tip[1] + dir[1] * 1e5];
+      let best = null;
+      C.forEach((o, j) => {
+        for (let k = 1; k < o.pts.length; k++) {
+          if (j === hit && (atEnd ? k >= n - 1 : k <= 1)) continue;
+          const r = segInter(tip, far, o.pts[k - 1], o.pts[k]);
+          if (r && r.t * 1e5 > 1e-6 && (!best || r.t < best.t)) best = r;
+        }
+      });
+      if (!best) { flash("No hay ningún contorno en esa dirección."); return; }
+      commit("Alargar", () => { if (atEnd) c.pts[n - 1] = best.pt; else c.pts[0] = best.pt; });
+      flash(`Alargado ${fmt(best.t * 1e5, 3)} mm.`);
+    }
+  }
+  function cadHover(sx, sy, ev) {
+    const touch = ev.pointerType === "touch", tol = touch ? 16 : 7;
+    if (CAD_TOOLS[tool].points) {
+      cad.cur = pickPoint(sx, sy, ev, tol);
+      if (cad.pts.length) {
+        const ref = cad.pts[cad.pts.length - 1];
+        const d = dist(ref, cad.cur), a = (Math.atan2(cad.cur[1] - ref[1], cad.cur[0] - ref[0]) * 180) / Math.PI;
+        flash(`L ${fmt(d, 3)} mm · ${fmt(a, 1)}° · ΔX ${fmt(cad.cur[0] - ref[0])} · ΔY ${fmt(cad.cur[1] - ref[1])}${snapPt ? ` · imán: ${snapPt.kind}` : ""}`);
+      } else if (snapPt) flash(`Imán: ${snapPt.kind}`);
+    } else if (tool === "nodes") {
+      cad.hoverNode = nearestNode(sx, sy, tol + 2);
+      hover = cad.hoverNode ? -1 : hitTest(sx, sy, tol);
+    } else {
+      hover = hitTest(sx, sy, tol);
+    }
+    draw();
+  }
+  function cadDrag(sx, sy, ev) {
+    const d = drag; d.cx = sx; d.cy = sy;
+    if (d.mode === "nodebox") { draw(); return; }
+    const far = Math.hypot(sx - d.sx, sy - d.sy) > 3;
+    if (!far && !d.moved) return;
+    d.moved = true;
+    let target = toWorld(sx, sy);
+    const sn = snapCfg.obj ? snapAt(sx, sy, 10) : null;
+    let dx = target[0] - d.w0[0], dy = target[1] - d.w0[1];
+    if (sn && d.orig.length === 1) { dx = sn.p[0] - d.orig[0][2][0]; dy = sn.p[1] - d.orig[0][2][1]; snapPt = sn; } else snapPt = null;
+    if (snapCfg.ortho || ev.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
+    for (const [i, k, o] of d.orig) {
+      const c = C[i], r = ring(c);
+      r[k] = [o[0] + dx, o[1] + dy];
+      setRing(c, r);
+    }
+    refreshBoxes();
+    flash(`Estirar: ΔX ${fmt(dx)} · ΔY ${fmt(dy)} mm (${d.orig.length} vértice(s))`);
+    draw();
+  }
+  function cadUp(d) {
+    snapPt = null;
+    if (d.mode === "node" && d.moved) {
+      undo.push(d.before); if (undo.length > 80) undo.shift(); redo = [];
+      setDirty(true, "Estirar"); scheduleAnalysis(); renderSide();
+    } else if (d.mode === "nodebox") {
+      const far = Math.hypot(d.cx - d.sx, d.cy - d.sy) > 4;
+      if (!d.additive) cad.nodeSel.clear();
+      if (far) {
+        const [ax, ay] = toWorld(Math.min(d.sx, d.cx), Math.max(d.sy, d.cy)), [bx, by] = toWorld(Math.max(d.sx, d.cx), Math.min(d.sy, d.cy));
+        C.forEach((c, i) => ring(c).forEach((q, k) => { if (q[0] >= ax && q[0] <= bx && q[1] >= ay && q[1] <= by) cad.nodeSel.add(`${i}:${k}`); }));
+        flash(`${cad.nodeSel.size} vértice(s) seleccionado(s): arrastra uno para estirar.`);
+      }
+    }
+  }
+  canvas.addEventListener("dblclick", (ev) => {
+    if (tool !== "nodes") return;
+    const [sx, sy] = local(ev);
+    const nn = nearestNode(sx, sy, 9);
+    if (nn) {
+      const c = C[nn.i], r = ring(c);
+      if (r.length <= (c.closed ? 3 : 2)) { flash("No se pueden quitar más vértices."); return; }
+      commit("Quitar vértice", () => { r.splice(nn.k, 1); setRing(c, r); cad.nodeSel.clear(); });
+      return;
+    }
+    const hit = hitTest(sx, sy, 9);
+    if (hit < 0) return;
+    const near = nearestOn(C[hit], toWorld(sx, sy));
+    commit("Añadir vértice", () => { C[hit].pts.splice(near.k, 0, near.q); });
+  });
+
+  function cadPaint() {
+    // vértices en la herramienta de nodos
+    if (tool === "nodes") {
+      C.forEach((c, i) => {
+        const bb = boxes[i];
+        if ((bb[2] - bb[0] + bb[3] - bb[1]) * view.s < 25) return;
+        let lx = -1e9, ly = -1e9;
+        ring(c).forEach((q, k) => {
+          const [x, y] = toScreen(q[0], q[1]);
+          if (x < -5 || y < -5 || x > W + 5 || y > H + 5) return;
+          const on = cad.nodeSel.has(`${i}:${k}`), hv = cad.hoverNode && cad.hoverNode.i === i && cad.hoverNode.k === k;
+          if (!on && !hv && Math.hypot(x - lx, y - ly) < 9) return;   // arcos discretizados: no saturar de nodos
+          lx = x; ly = y;
+          ctx.fillStyle = on ? colors.sel : colors.bg; ctx.strokeStyle = colors.sel; ctx.lineWidth = 1.2;
+          const r = hv ? 5 : 3.5;
+          ctx.fillRect(x - r, y - r, 2 * r, 2 * r); ctx.strokeRect(x - r, y - r, 2 * r, 2 * r);
+        });
+      });
+    }
+    // goma elástica de las herramientas de dibujo
+    if (CAD_TOOLS[tool] && CAD_TOOLS[tool].points && (cad.pts.length || cad.cur)) {
+      const pts = cad.pts.slice();
+      ctx.strokeStyle = colors.sel; ctx.lineWidth = 1.6; ctx.setLineDash([]);
+      let preview = [];
+      if (tool === "draw" || tool === "angle") preview = cad.cur ? pts.concat([cad.cur]) : pts;
+      else if (tool === "arc") preview = pts.length === 2 && cad.cur ? arc3(pts[0], pts[1], cad.cur) : (cad.cur ? pts.concat([cad.cur]) : pts);
+      else if (tool === "dcircle" && pts.length && cad.cur) preview = circlePts(pts[0][0], pts[0][1], Math.max(dist(pts[0], cad.cur), 1e-6));
+      else if (tool === "drect" && pts.length && cad.cur) { const a = pts[0], b = cad.cur; preview = [a, [b[0], a[1]], b, [a[0], b[1]], a]; }
+      if (preview.length > 1) {
+        ctx.beginPath();
+        preview.forEach((p, k) => { const [x, y] = toScreen(p[0], p[1]); k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+        ctx.stroke();
+      }
+      ctx.fillStyle = colors.sel;
+      for (const p of pts) { const [x, y] = toScreen(p[0], p[1]); ctx.fillRect(x - 3, y - 3, 6, 6); }
+      if (cad.cur) {
+        const [x, y] = toScreen(cad.cur[0], cad.cur[1]);
+        ctx.strokeStyle = colors.text; ctx.lineWidth = 1; ctx.globalAlpha = 0.6;
+        ctx.beginPath(); ctx.moveTo(x - 12, y); ctx.lineTo(x + 12, y); ctx.moveTo(x, y - 12); ctx.lineTo(x, y + 12); ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
+    if (cad.angle.length === 3) {
+      const [v, a, b] = cad.angle.map((p) => toScreen(p[0], p[1]));
+      ctx.strokeStyle = colors.ink; ctx.lineWidth = 1.2; ctx.setLineDash([4, 3]);
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(v[0], v[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); ctx.setLineDash([]);
+    }
+    if (cad.brk) {
+      const [x, y] = toScreen(cad.brk.q[0], cad.brk.q[1]);
+      ctx.strokeStyle = colors.err; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x - 6, y - 6); ctx.lineTo(x + 6, y + 6); ctx.moveTo(x + 6, y - 6); ctx.lineTo(x - 6, y + 6); ctx.stroke();
+    }
+    if (show.dims && C.length) paintDims(sel.size ? [...sel] : null);
+  }
+  function paintDims(idx) {
+    const [a, b, c, d] = allBox(idx);
+    const [x0, y0] = toScreen(a, b), [x1, y1] = toScreen(c, d);
+    ctx.strokeStyle = colors.text; ctx.fillStyle = colors.ink; ctx.lineWidth = 1;
+    ctx.font = "600 12px system-ui, sans-serif"; ctx.textAlign = "center";
+    const arrow = (x, y, ang) => { ctx.save(); ctx.translate(x, y); ctx.rotate(ang); ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-8, -3); ctx.lineTo(-8, 3); ctx.closePath(); ctx.fill(); ctx.restore(); };
+    const label = (txt, x, y) => { const w = ctx.measureText(txt).width + 8; ctx.fillStyle = colors.bg; ctx.fillRect(x - w / 2, y - 9, w, 16); ctx.fillStyle = colors.ink; ctx.fillText(txt, x, y + 4); };
+    const yd = y0 + 26;   // cota horizontal bajo la pieza
+    ctx.beginPath(); ctx.moveTo(x0, y0 + 4); ctx.lineTo(x0, yd + 5); ctx.moveTo(x1, y0 + 4); ctx.lineTo(x1, yd + 5); ctx.moveTo(x0, yd); ctx.lineTo(x1, yd); ctx.stroke();
+    arrow(x0, yd, Math.PI); arrow(x1, yd, 0); label(`${fmt(c - a, 2)}`, (x0 + x1) / 2, yd);
+    const xd = x1 + 26;   // cota vertical a la derecha
+    ctx.beginPath(); ctx.moveTo(x1 + 4, y0); ctx.lineTo(xd + 5, y0); ctx.moveTo(x1 + 4, y1); ctx.lineTo(xd + 5, y1); ctx.moveTo(xd, y0); ctx.lineTo(xd, y1); ctx.stroke();
+    arrow(xd, y1, -Math.PI / 2); arrow(xd, y0, Math.PI / 2);
+    ctx.save(); ctx.translate(xd, (y0 + y1) / 2); ctx.rotate(-Math.PI / 2); label(`${fmt(d - b, 2)}`, 0, 0); ctx.restore();
+    // diámetros de los círculos seleccionados
+    if (idx) for (const i of idx) {
+      const circ = circleOf(C[i]); if (!circ) continue;
+      const [cx, cy] = toScreen(circ.cx, circ.cy), r = circ.r * view.s;
+      if (r < 6) continue;
+      ctx.strokeStyle = colors.ink; ctx.beginPath(); ctx.moveTo(cx - r * 0.707, cy + r * 0.707); ctx.lineTo(cx + r * 0.707 + 18, cy - r * 0.707 - 18); ctx.stroke();
+      ctx.textAlign = "left"; label(`Ø${fmt(circ.r * 2, 2)}`, cx + r * 0.707 + 40, cy - r * 0.707 - 18); ctx.textAlign = "center";
+    }
+  }
+
+  // ---------- operaciones de forma en el servidor, matrices, capas, limpieza y exportación
+  async function serverOp(op, extra, label) {
+    const idx = (sel.size ? [...sel] : []).filter((i) => C[i].layer !== "marcado");
+    if (!idx.length) { flash("Selecciona primero los contornos cerrados."); return; }
+    try {
+      $("ed-state").textContent = "Calculando…";
+      const res = await api(`/piezas/${PART}/geometria/operacion`, { op, ...extra, contours: idx.map((i) => ({ points: rnd(C[i].pts), closed: C[i].closed })) });
+      commit(label, () => {
+        const keep = extra.keep;
+        const drop = new Set(keep ? [] : idx);
+        C = C.filter((_, i) => !drop.has(i));
+        const start = C.length;
+        res.contours.forEach((c) => C.push({ pts: c.points, closed: c.closed, kind: "exterior", layer: "corte" }));
+        sel = new Set(res.contours.map((_, k) => start + k));
+      });
+      flash(`${label}: ${res.contours.length} contorno(s) resultante(s).`);
+    } catch (e) { setDirty(dirty, e.message); flash(e.message); }
+  }
+  Object.assign(actions, {
+    offset() {
+      if (!sel.size) { flash("Selecciona los contornos (cerrados) a los que quieres aplicar la equidistancia."); return; }
+      ask("Equidistancia (offset)", [
+        { name: "d", label: "Distancia", unit: "mm", value: 1, min: -1000, max: 1000, help: "Positiva hacia fuera de la pieza (crece); negativa hacia dentro (encoge). Los agujeros se comportan al revés, como en el corte." },
+        { name: "j", label: "Esquinas", value: "redondo", options: [["redondo", "Redondeadas"], ["inglete", "Vivas (inglete)"], ["chaflan", "Achaflanadas"]] },
+        { name: "k", label: "Original", value: "0", options: [["0", "Sustituir"], ["1", "Conservar y añadir la copia"]] }],
+      (v) => { if (v.d === 0) return "La distancia no puede ser 0."; serverOp("offset", { distance: v.d, join: v.j, keep: v.k === "1" }, "Equidistancia"); });
+    },
+    union() { serverOp("union", {}, "Unir formas"); },
+    diff() { serverOp("diferencia", {}, "Restar formas"); },
+    inter() { serverOp("interseccion", {}, "Intersección"); },
+    arrayrect() {
+      if (!sel.size) { flash("Selecciona primero lo que quieres repetir."); return; }
+      const b = allBox([...sel]);
+      ask("Matriz rectangular", [{ name: "nx", label: "Columnas", value: 3, min: 1, max: 100 }, { name: "ny", label: "Filas", value: 1, min: 1, max: 100 },
+        { name: "dx", label: "Paso X", unit: "mm", value: Math.round((b[2] - b[0] + 10) * 100) / 100 }, { name: "dy", label: "Paso Y", unit: "mm", value: Math.round((b[3] - b[1] + 10) * 100) / 100 }], (v) => {
+        const nx = Math.round(v.nx), ny = Math.round(v.ny), src = [...sel];
+        if (nx * ny * src.length > 3000) return "Demasiadas copias.";
+        commit("Matriz rectangular", () => {
+          const added = [...src];
+          for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) {
+            if (!i && !j) continue;
+            for (const s of src) { C.push({ ...C[s], pts: C[s].pts.map(([x, y]) => [x + v.dx * i, y + v.dy * j]) }); added.push(C.length - 1); }
+          }
+          sel = new Set(added);
+        });
+      });
+    },
+    arraypolar() {
+      if (!sel.size) { flash("Selecciona primero lo que quieres repetir."); return; }
+      const all = centerOf();
+      ask("Matriz polar", [{ name: "n", label: "Nº total de elementos", value: 6, min: 2, max: 360 }, { name: "a", label: "Ángulo total", unit: "°", value: 360, min: -360, max: 360 },
+        { name: "x", label: "Centro X", unit: "mm", value: Math.round(all[0] * 100) / 100 }, { name: "y", label: "Centro Y", unit: "mm", value: Math.round(all[1] * 100) / 100 }], (v) => {
+        const n = Math.round(v.n), src = [...sel];
+        if (n * src.length > 3000) return "Demasiadas copias.";
+        const step = Math.abs(v.a) >= 360 ? (2 * Math.PI) / n : ((v.a * Math.PI) / 180) / (n - 1);
+        commit("Matriz polar", () => {
+          const added = [...src];
+          for (let k = 1; k < n; k++) {
+            const co = Math.cos(step * k), si = Math.sin(step * k);
+            for (const s of src) { C.push({ ...C[s], pts: C[s].pts.map(([x, y]) => [v.x + (x - v.x) * co - (y - v.y) * si, v.y + (x - v.x) * si + (y - v.y) * co]) }); added.push(C.length - 1); }
+          }
+          sel = new Set(added);
+        });
+      });
+    },
+    dedupe() {
+      const sig = (c) => { const r = ring(c).map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`); const s = [...r].sort().join("|"); return `${c.closed}:${s}`; };
+      const seen = new Set(), drop = new Set();
+      C.forEach((c, i) => { const k = sig(c); if (seen.has(k)) drop.add(i); else seen.add(k); });
+      if (!drop.size) { flash("No hay contornos duplicados."); return; }
+      commit("Quitar duplicados", () => { C = C.filter((_, i) => !drop.has(i)); sel.clear(); });
+      flash(`${drop.size} contorno(s) duplicado(s) eliminado(s).`);
+    },
+    tomark() {
+      if (!sel.size) { flash("Selecciona lo que quieres pasar a marcado."); return; }
+      commit("Capa marcado", () => sel.forEach((i) => { C[i].layer = "marcado"; }));
+      flash("Pasado a la capa de marcado: no cuenta como corte ni perforación.");
+    },
+    tocut() {
+      if (!sel.size) { flash("Selecciona lo que quieres pasar a corte."); return; }
+      commit("Capa corte", () => sel.forEach((i) => { C[i].layer = "corte"; }));
+    },
+    selmark() { sel = new Set(C.map((c, i) => (c.layer === "marcado" ? i : -1)).filter((i) => i >= 0)); draw(); renderSide(); },
+    export(fmtExt) {
+      if (dirty) { flash("Guarda primero los cambios: la descarga usa la geometría guardada."); return; }
+      window.location.href = `/piezas/${PART}/plano.${fmtExt || "dxf"}`;
+    },
+    exportdxf() { actions.export("dxf"); },
+    exportdwg() { actions.export("dwg"); },
+  });
+
   function setTool(t) {
-    tool = t; measure = null; snapPt = null;
+    if (CAD_TOOLS[t] && CAD_TOOLS[t].ask && !CAD_TOOLS[t].asked) { CAD_TOOLS[t].ask(() => setTool(t)); return; }
+    tool = t; measure = null; snapPt = null; cadReset();
     document.querySelectorAll("[data-tool]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.tool === t)));
     canvas.dataset.tool = t;
     flash({ select: "Clic para seleccionar; arrastra lo seleccionado para moverlo.",
       measure: "Pulsa dos puntos (imán a vértices, puntos medios y centros).",
-      start: "Pulsa sobre un contorno para fijar dónde perfora y empieza a cortar." }[t]);
+      start: "Pulsa sobre un contorno para fijar dónde perfora y empieza a cortar." }[t] || CAD_TOOLS[t]?.hint || "");
+    $("ed-cmd-wrap").hidden = !(CAD_TOOLS[t] && CAD_TOOLS[t].points);
     draw();
   }
 
@@ -788,6 +1427,7 @@
       draw(); return;
     }
     if (tool === "start") { setStart(sx, sy); return; }
+    if (CAD_TOOLS[tool]) { cadDown(sx, sy, ev, tolPx); return; }
     const hit = hitTest(sx, sy, tolPx);
     const additive = ev.shiftKey || ev.ctrlKey || ev.metaKey;
     if (hit >= 0 && sel.has(hit) && !additive) {
@@ -814,6 +1454,8 @@
       if (pinch.d > 0) zoomAt(mid[0], mid[1], d / pinch.d);
       pinch = { d, mid }; draw(); return;
     }
+    if (!drag && CAD_TOOLS[tool]) { cadHover(sx, sy, ev); return; }
+    if (drag && (drag.mode === "node" || drag.mode === "nodebox")) { cadDrag(sx, sy, ev); return; }
     if (!drag) {
       if (tool === "measure") {
         snapPt = snapAt(sx, sy, ev.pointerType === "touch" ? 25 : 11);
@@ -829,6 +1471,7 @@
     drag.cx = sx; drag.cy = sy;
     const far = Math.hypot(sx - drag.sx, sy - drag.sy) > 4;
     if (drag.mode === "pan") {
+      autoFit = false;
       view.cx = drag.v.cx - (sx - drag.sx) / view.s; view.cy = drag.v.cy + (sy - drag.sy) / view.s;
       if (far) drag.tap = false;
       draw();
@@ -847,6 +1490,7 @@
     if (pointers.size < 2) pinch = null;
     if (!drag) return;
     const d = drag; drag = null;
+    if (d.mode === "node" || d.mode === "nodebox") { cadUp(d); draw(); return; }
     if (d.mode === "move" && d.moved) {
       undo.push(d.before); if (undo.length > 80) undo.shift(); redo = [];
       setDirty(true, "Mover"); scheduleAnalysis(); renderSide();
@@ -887,6 +1531,7 @@
   document.addEventListener("keydown", (ev) => {
     if (dlg.open) return;
     const t = ev.target;
+    if (t && t.id === "ed-cmd") return;
     if (t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA")) return;
     const k = ev.key.toLowerCase(), mod = ev.ctrlKey || ev.metaKey;
     if (mod && k === "z") { ev.preventDefault(); ev.shiftKey ? doRedo() : doUndo(); return; }
@@ -895,14 +1540,23 @@
     if (mod && k === "a") { ev.preventDefault(); actions.selall(); return; }
     if (mod) return;
     if (k === "delete" || k === "backspace") { ev.preventDefault(); actions.delete(); }
-    else if (k === "escape") { sel.clear(); measure = null; setTool("select"); renderSide(); }
+    else if (k === "escape") { if (cad.pts.length) { cadFinish(); return; } sel.clear(); measure = null; setTool("select"); renderSide(); }
+    else if (k === "enter" && cad.pts.length) cadFinish();
+    else if (k === "l") setTool("draw");
+    else if (k === "n") setTool("nodes");
+    else if (k === "t") setTool("trim");
+    else if (k === "e") setTool("extend");
+    else if (k === "o") actions.offset();
+    else if (k === "f8") { ev.preventDefault(); toggleSnap("ortho"); }
+    else if (k === "f3") { ev.preventDefault(); toggleSnap("obj"); }
+    else if (k === "f9") { ev.preventDefault(); toggleSnap("grid"); }
     else if (k === "v") setTool("select");
     else if (k === "m") setTool("measure");
     else if (k === "p") setTool("start");
-    else if (k === "c") actions.close();
+    else if (k === "c" && !CAD_TOOLS[tool]) actions.close();
     else if (k === "j") actions.join();
     else if (k === "r") actions.reverse();
-    else if (k === "f") fit();
+    else if (k === "f" && !ev.shiftKey) fit();
     else if (k === "+" || k === "=") actions.zoomin();
     else if (k === "-") actions.zoomout();
     else if (k.startsWith("arrow") && sel.size) {
@@ -920,7 +1574,7 @@
   (async () => {
     try {
       const data = await api(`/piezas/${PART}/geometria.json`);
-      C = data.contours.map((c) => ({ pts: c.points, closed: c.closed, kind: c.kind }));
+      C = data.contours.map((c) => ({ pts: c.points, closed: c.closed, kind: c.kind, layer: c.layer || "corte" }));
       refreshBoxes();
       resize(); fit(); setTool("select"); setDirty(false, "Sin cambios");
       renderSide(); runAnalysis();

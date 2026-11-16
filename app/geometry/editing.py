@@ -273,3 +273,102 @@ def analyze(polys, rules: Rules | None) -> dict:
             "rapid_length_mm", "smallest_inner_feature_mm", "duplicates_removed")
     return {"metrics": {k: metrics[k] for k in keys}, "kinds": kinds,
             "issues": check_manufacturability(polys, kinds, rules) if rules else []}
+
+
+# --------------------------------------------------------------------------- operaciones de forma (servidor)
+
+from shapely.ops import unary_union  # noqa: E402
+
+MAX_OFFSET = 1000.0
+JOINS = {"redondo": 1, "inglete": 2, "chaflan": 3}
+
+
+def _quad_segs(r: float) -> int:
+    r = abs(r)
+    if r <= 0:
+        return 8
+    step = 2 * math.acos(max(-1.0, 1 - 0.01 / r))
+    return int(min(64, max(8, math.ceil((math.pi / 2) / step))))
+
+
+def _closed_polygons(polys) -> list[Polygon]:
+    out = []
+    for pts, closed in polys:
+        if not closed:
+            raise EditError("Esta operación solo admite contornos cerrados: cierra o une antes los abiertos.")
+        poly = Polygon(pts)
+        if not poly.is_valid:
+            poly = poly.buffer(0)
+        if not poly.is_empty:
+            out.append(poly)
+    if not out:
+        raise EditError("Selecciona al menos un contorno cerrado.")
+    return out
+
+
+def _rings(geom) -> list[dict]:
+    rings: list[dict] = []
+    geoms = getattr(geom, "geoms", [geom])
+    for g in geoms:
+        if g.is_empty or g.geom_type != "Polygon" or g.area < 1e-6:
+            continue
+        for ring in [g.exterior, *g.interiors]:
+            pts = [[round(x, 4), round(y, 4)] for x, y in ring.coords]
+            if len(pts) >= 4:
+                rings.append({"points": pts, "closed": True})
+    if not rings:
+        raise EditError("El resultado de la operación queda vacío.")
+    return rings
+
+
+def shape_operation(polys, op: str, distance: float = 0.0, join: str = "redondo") -> list[dict]:
+    """Equidistancia (offset) y operaciones booleanas sobre contornos cerrados.
+
+    Los contornos se interpretan con la regla par-impar (un agujero dentro de un exterior resta), igual que el corte.
+    """
+    shapes = _closed_polygons(polys)
+    if op == "offset":
+        if not math.isfinite(distance) or abs(distance) > MAX_OFFSET or abs(distance) < 1e-4:
+            raise EditError(f"La distancia debe estar entre 0,0001 y {MAX_OFFSET:g} mm.")
+        region = shapes[0]
+        for s in shapes[1:]:
+            region = region.symmetric_difference(s)
+        js = JOINS.get(join, 1)
+        res = region.buffer(distance, quad_segs=_quad_segs(distance), join_style=js, mitre_limit=10)
+        return _rings(res)
+    if len(shapes) < 2:
+        raise EditError("Selecciona al menos dos contornos cerrados.")
+    if op == "union":
+        return _rings(unary_union(shapes))
+    if op == "diferencia":
+        shapes.sort(key=lambda s: s.area, reverse=True)
+        return _rings(shapes[0].difference(unary_union(shapes[1:])))
+    if op == "interseccion":
+        res = shapes[0]
+        for s in shapes[1:]:
+            res = res.intersection(s)
+        return _rings(res)
+    raise EditError("Operación no válida.")
+
+
+def to_dxf(contours: list, units_source: str = "mm") -> bytes:
+    """DXF limpio (R2010, mm) con una polilínea por contorno y capas por tipo. Sin datos del fichero original."""
+    import io
+
+    import ezdxf
+    doc = ezdxf.new("R2010", units=4)
+    doc.header["$MEASUREMENT"] = 1
+    for name, color in (("CORTE_EXTERIOR", 5), ("CORTE_INTERIOR", 1), ("ABIERTO", 30), ("MARCADO", 6)):
+        doc.layers.add(name, color=color)
+    msp = doc.modelspace()
+    layer = {"exterior": "CORTE_EXTERIOR", "interior": "CORTE_INTERIOR", "marcado": "MARCADO"}
+    for pts, closed, kind in contours:
+        p = [(x, y) for x, y in pts]
+        if closed and len(p) > 1 and p[0] == p[-1]:
+            p = p[:-1]
+        if len(p) < 2:
+            continue
+        msp.add_lwpolyline(p, close=bool(closed), dxfattribs={"layer": layer.get(kind, "ABIERTO")})
+    buf = io.StringIO()
+    doc.write(buf)
+    return buf.getvalue().encode("utf-8")

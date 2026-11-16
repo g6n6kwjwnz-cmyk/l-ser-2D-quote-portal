@@ -36,6 +36,38 @@
       <button type="button" class="ed-btn" data-tool="measure" title="Medir distancias con imán a vértices, puntos medios y centros (M)">{{ ic('measure') }}<span>Medir</span></button>
       <button type="button" class="ed-btn" data-tool="start" title="Elegir el punto de perforación / inicio de corte (P)">{{ ic('start') }}<span>Inicio de corte</span></button>
     </div>
+    <div class="ed-group" aria-label="Dibujar">
+      <button type="button" class="ed-btn" data-tool="draw" title="Línea / polilínea con coordenadas (L)">{{ ic('draw') }}<span>Línea</span></button>
+      <details class="ed-menu">
+        <summary class="ed-btn" title="Dibujar">{{ ic('arc') }}<span>Dibujar</span>{{ ic('chevron') }}</summary>
+        <div class="ed-menu-pop">
+          <button type="button" class="ed-btn" data-tool="draw">{{ ic('draw') }}<span>Línea / polilínea (L)</span></button>
+          <button type="button" class="ed-btn" data-tool="arc">{{ ic('arc') }}<span>Arco por 3 puntos</span></button>
+          <button type="button" class="ed-btn" data-tool="dcircle">{{ ic('dcircle') }}<span>Círculo (centro y radio)</span></button>
+          <button type="button" class="ed-btn" data-tool="drect">{{ ic('drect') }}<span>Rectángulo (2 esquinas)</span></button>
+          <button type="button" class="ed-btn" data-act="circle">{{ ic('circle') }}<span>Círculo con medidas…</span></button>
+          <button type="button" class="ed-btn" data-act="rect">{{ ic('rect') }}<span>Rectángulo con radio…</span></button>
+          <button type="button" class="ed-btn" data-act="slot">{{ ic('slot') }}<span>Coliso…</span></button>
+        </div>
+      </details>
+      <details class="ed-menu">
+        <summary class="ed-btn" title="Modificar (CAD)">{{ ic('cad') }}<span>Modificar</span>{{ ic('chevron') }}</summary>
+        <div class="ed-menu-pop">
+          <button type="button" class="ed-btn" data-tool="nodes">{{ ic('nodes2') }}<span>Nodos / estirar (N)</span></button>
+          <button type="button" class="ed-btn" data-tool="fillet">{{ ic('fillet') }}<span>Empalme (redondeo)…</span></button>
+          <button type="button" class="ed-btn" data-tool="chamfer">{{ ic('chamfer') }}<span>Chaflán…</span></button>
+          <button type="button" class="ed-btn" data-tool="trim">{{ ic('trim') }}<span>Recortar (T)</span></button>
+          <button type="button" class="ed-btn" data-tool="extend">{{ ic('extend') }}<span>Alargar (E)</span></button>
+          <button type="button" class="ed-btn" data-tool="brk">{{ ic('brk') }}<span>Partir</span></button>
+          <button type="button" class="ed-btn" data-act="offset">{{ ic('offset') }}<span>Equidistancia / offset… (O)</span></button>
+          <button type="button" class="ed-btn" data-act="union">{{ ic('union') }}<span>Unir formas</span></button>
+          <button type="button" class="ed-btn" data-act="diff">{{ ic('diff') }}<span>Restar formas (la mayor menos el resto)</span></button>
+          <button type="button" class="ed-btn" data-act="inter">{{ ic('inter') }}<span>Intersección de formas</span></button>
+          <button type="button" class="ed-btn" data-act="arrayrect">{{ ic('arrayrect') }}<span>Matriz rectangular…</span></button>
+          <button type="button" class="ed-btn" data-act="arraypolar">{{ ic('arraypolar') }}<span>Matriz polar…</span></button>
+        </div>
+      </details>
+    </div>
     <div class="ed-group" aria-label="Editar">
       <button type="button" class="ed-btn" data-act="delete" title="Borrar la selección (Supr)">{{ ic('delete') }}<span>Borrar</span></button>
       <button type="button" class="ed-btn" data-act="close" title="Cerrar los contornos abiertos seleccionados (C)">{{ ic('close') }}<span>Cerrar</span></button>
@@ -54,18 +86,13 @@
         </div>
       </details>
       <details class="ed-menu">
-        <summary class="ed-btn">{{ ic('add') }}<span>Añadir</span>{{ ic('chevron') }}</summary>
-        <div class="ed-menu-pop">
-          <button type="button" class="ed-btn" data-act="circle">{{ ic('circle') }}<span>Círculo / taladro…</span></button>
-          <button type="button" class="ed-btn" data-act="rect">{{ ic('rect') }}<span>Rectángulo (con radio)…</span></button>
-          <button type="button" class="ed-btn" data-act="slot">{{ ic('slot') }}<span>Coliso…</span></button>
-        </div>
-      </details>
-      <details class="ed-menu">
         <summary class="ed-btn">{{ ic('clean') }}<span>Limpiar</span>{{ ic('chevron') }}</summary>
         <div class="ed-menu-pop">
           <button type="button" class="ed-btn" data-act="simplify">{{ ic('simplify') }}<span>Simplificar (menos vértices)…</span></button>
           <button type="button" class="ed-btn" data-act="tiny">{{ ic('tiny') }}<span>Quitar contornos diminutos…</span></button>
+          <button type="button" class="ed-btn" data-act="dedupe">{{ ic('dedupe') }}<span>Quitar duplicados</span></button>
+          <button type="button" class="ed-btn" data-act="tomark">{{ ic('mark') }}<span>Pasar a capa de marcado</span></button>
+          <button type="button" class="ed-btn" data-act="tocut">{{ ic('cut') }}<span>Pasar a capa de corte</span></button>
         </div>
       </details>
     </div>
@@ -76,6 +103,7 @@
           <button type="button" class="ed-btn" data-act="selall">{{ ic('selall') }}<span>Todo (Ctrl+A)</span></button>
           <button type="button" class="ed-btn" data-act="selinv">{{ ic('selinv') }}<span>Invertir selección</span></button>
           <button type="button" class="ed-btn" data-act="selopen">{{ ic('selopen') }}<span>Contornos abiertos</span></button>
+          <button type="button" class="ed-btn" data-act="selmark">{{ ic('mark') }}<span>Capa de marcado</span></button>
           <button type="button" class="ed-btn" data-act="selissues">{{ ic('selissues') }}<span>Contornos con problemas</span></button>
         </div>
       </details>
@@ -87,10 +115,24 @@
           <button type="button" class="ed-btn" data-toggle="nums" aria-pressed="false">{{ ic('nums') }}<span>Números de contorno</span></button>
           <button type="button" class="ed-btn" data-toggle="pierce" aria-pressed="true">{{ ic('pierce') }}<span>Perforaciones</span></button>
           <button type="button" class="ed-btn" data-toggle="nodes" aria-pressed="false">{{ ic('nodes') }}<span>Vértices</span></button>
+          <button type="button" class="ed-btn" data-toggle="dims" aria-pressed="false">{{ ic('dims') }}<span>Cotas generales</span></button>
+          <button type="button" class="ed-btn" data-tool="angle">{{ ic('angle') }}<span>Medir ángulo</span></button>
         </div>
       </details>
     </div>
+    <div class="ed-group" aria-label="Imanes">
+      <button type="button" class="ed-btn" data-snap="obj" aria-pressed="true" title="Imán a extremos, puntos medios, centros e intersecciones (F3)">{{ ic('magnet') }}<span>Imán</span></button>
+      <button type="button" class="ed-btn" data-snap="ortho" aria-pressed="false" title="Orto: solo horizontal y vertical (F8)">{{ ic('ortho') }}<span>Orto</span></button>
+      <button type="button" class="ed-btn" data-snap="grid" aria-pressed="false" title="Imán a la rejilla (F9)">{{ ic('grid') }}<span>Rejilla</span></button>
+    </div>
     <div class="ed-group" aria-label="Historial y guardado">
+      <details class="ed-menu ed-menu-right">
+        <summary class="ed-btn" title="Descargar la pieza guardada">{{ ic('download') }}<span>Exportar</span>{{ ic('chevron') }}</summary>
+        <div class="ed-menu-pop">
+          <button type="button" class="ed-btn" data-act="exportdxf">{{ ic('download') }}<span>DXF (capas corte / marcado)</span></button>
+          <button type="button" class="ed-btn" data-act="exportdwg">{{ ic('download') }}<span>DWG (si hay conversor)</span></button>
+        </div>
+      </details>
       <button type="button" class="ed-btn" data-act="undo" title="Deshacer (Ctrl+Z)" aria-label="Deshacer">{{ ic('undo') }}</button>
       <button type="button" class="ed-btn" data-act="redo" title="Rehacer (Ctrl+Y)" aria-label="Rehacer">{{ ic('redo') }}</button>
       {% if not locked %}<button type="button" class="btn primary ed-save" data-act="save" title="Guardar (Ctrl+S)">{{ ic('save') }}<span>Guardar</span></button>{% endif %}
@@ -107,7 +149,7 @@
         <button type="button" class="ed-zbtn" data-act="fit" title="Ajustar a la ventana (F)" aria-label="Ajustar">{{ ic('fit') }}</button>
       </div>
       <canvas id="ed-canvas" tabindex="0" aria-label="Plano de la pieza. Usa la rueda o dos dedos para hacer zoom."></canvas>
-      <div class="ed-status"><span id="ed-coords">X — · Y —</span><span id="ed-hint"></span><span id="ed-state" class="ed-state">Cargando…</span></div>
+      <div class="ed-status"><label id="ed-cmd-wrap" class="ed-cmd" hidden><span>Coordenadas</span><input id="ed-cmd" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="100;50 · @20;0 · @30<45 · 25 · C"></label><span id="ed-coords">X — · Y —</span><span id="ed-hint"></span><span id="ed-state" class="ed-state">Cargando…</span></div>
     </div>
 
     <aside class="ed-side">
@@ -152,7 +194,9 @@
           <li>Rueda o pellizco: zoom. Arrastrar con botón central/derecho o con un dedo en vacío: desplazar.</li>
           <li>Clic: seleccionar · Mayús/Ctrl + clic: añadir · Arrastrar en vacío: ventana (izq.→der. dentro, der.→izq. cruzando).</li>
           <li>Arrastrar un contorno seleccionado: mover (Mayús: solo horizontal/vertical). Flechas: mover 1 mm (Mayús 10 mm).</li>
-          <li>V seleccionar · M medir · P inicio de corte · Supr borrar · C cerrar · J unir · R invertir · F ajustar · Esc cancelar.</li>
+          <li>V seleccionar · M medir · P inicio de corte · L línea · N nodos · T recortar · E alargar · O equidistancia · Supr borrar · C cerrar · J unir · R invertir · F ajustar · Esc cancelar.</li>
+          <li>Coordenadas al dibujar: <code>100;50</code> absoluto · <code>@20;0</code> relativo · <code>@30&lt;45</code> distancia y ángulo · <code>25</code> distancia en la dirección del cursor · <code>C</code> cerrar · Intro terminar.</li>
+          <li>F3 imán a objetos · F8 orto · F9 imán a rejilla. Mayús mientras dibujas = orto.</li>
           <li>Ctrl+Z / Ctrl+Y deshacer y rehacer · Ctrl+S guardar.</li>
         </ul>
       </details>

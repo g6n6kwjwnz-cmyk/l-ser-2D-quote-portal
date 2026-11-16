@@ -79,3 +79,11 @@
   .ed-group > .ed-btn, .ed-group > .ed-menu > summary { padding: .45rem .55rem; min-height: 40px; }
   .ed-save span { display: inline; }
 }
+
+/* línea de comandos y capas */
+.ed-cmd { display: inline-flex; align-items: center; gap: .4rem; font-weight: 600; color: var(--text); }
+.ed-cmd input { width: 15rem; max-width: 50vw; padding: .2rem .45rem; font: 600 .8rem ui-monospace, Consolas, monospace; }
+.ed-cmd[hidden] { display: none; }
+.sw.marcado { background: #8b5cf6; }
+.ed-menu-right .ed-menu-pop { left: auto; right: 0; }
+.ed-help code { font-size: .78rem; background: var(--surface-2); padding: 0 .25rem; border-radius: 4px; }

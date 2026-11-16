@@ -163,3 +163,65 @@ def test_editor_requires_login(client):
     assert client.post(f"/piezas/{pid}/geometria/analizar", json={"contours": []}).status_code == 401
     r = client.get(f"/piezas/{pid}/editor", follow_redirects=False)
     assert r.status_code == 303 and "/login" in r.headers["location"]
+
+
+# ---------------------------------------------------------------- herramientas CAD (servidor)
+
+def test_offset_and_booleans(client):
+    pid = _upload(client)
+    sq = _square(0, 0, 100)
+    r = client.post(f"/piezas/{pid}/geometria/operacion", json={"op": "offset", "distance": 5, "join": "inglete",
+                                                                "contours": [sq]})
+    assert r.status_code == 200
+    ring = r.json()["contours"][0]["points"]
+    xs = [p[0] for p in ring]
+    assert min(xs) == pytest.approx(-5) and max(xs) == pytest.approx(105)
+    # agujero dentro de la placa: el offset positivo agranda la placa y encoge el agujero
+    r = client.post(f"/piezas/{pid}/geometria/operacion", json={"op": "offset", "distance": 2,
+                                                                "contours": [sq, _square(40, 40, 20)]})
+    assert len(r.json()["contours"]) == 2
+    r = client.post(f"/piezas/{pid}/geometria/operacion", json={"op": "union", "contours": [sq, _square(90, 0, 50)]})
+    assert len(r.json()["contours"]) == 1
+    r = client.post(f"/piezas/{pid}/geometria/operacion", json={"op": "diferencia", "contours": [sq, _square(90, -10, 50)]})
+    from shapely.geometry import Polygon
+    assert Polygon(r.json()["contours"][0]["points"]).area == pytest.approx(10000 - 10 * 40)
+    # errores claros
+    r = client.post(f"/piezas/{pid}/geometria/operacion", json={"op": "union", "contours": [sq]})
+    assert r.status_code == 422
+    r = client.post(f"/piezas/{pid}/geometria/operacion", json={"op": "offset", "distance": 5,
+                                                                "contours": [{"points": [[0, 0], [5, 0]], "closed": False}]})
+    assert r.status_code == 422 and "cerrados" in r.json()["error"]
+    r = client.post(f"/piezas/{pid}/geometria/operacion", json={"op": "offset", "distance": 1e6, "contours": [sq]})
+    assert r.status_code == 422
+
+
+def test_marking_layer_and_dxf_export(client):
+    import ezdxf, io
+    pid = _upload(client)
+    contours = client.get(f"/piezas/{pid}/geometria.json").json()["contours"]
+    base = client.post(f"/piezas/{pid}/geometria/analizar", json={"contours": contours}).json()["metrics"]
+    mark = {"points": [[20, 50], [60, 50]], "closed": False, "layer": "marcado"}
+    r = client.post(f"/piezas/{pid}/geometria", json={"contours": contours + [mark]})
+    assert r.status_code == 200
+    back = r.json()["contours"]
+    assert sum(1 for c in back if c["layer"] == "marcado") == 1
+    page = client.get(f"/piezas/{pid}").text
+    assert "capa de marcado" in page
+    # el marcado no suma longitud de corte ni perforaciones
+    cut = [c for c in back if c["layer"] == "corte"]
+    m = client.post(f"/piezas/{pid}/geometria/analizar", json={"contours": cut}).json()["metrics"]
+    assert m["pierce_count"] == base["pierce_count"] and m["cut_length_mm"] == pytest.approx(base["cut_length_mm"], abs=0.1)
+    r = client.get(f"/piezas/{pid}/plano.dxf")
+    assert r.status_code == 200 and "attachment" in r.headers["content-disposition"]
+    doc = ezdxf.read(io.StringIO(r.content.decode()))
+    layers = {e.dxf.layer for e in doc.modelspace()}
+    assert {"CORTE_EXTERIOR", "CORTE_INTERIOR", "MARCADO"} <= layers
+
+
+def test_dwg_export_without_converter(client, monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "dwg_converter", "no-existe-dwg2dxf")
+    monkeypatch.setenv("PATH", "")
+    pid = _upload(client)
+    r = client.get(f"/piezas/{pid}/plano.dwg")
+    assert r.status_code == 404

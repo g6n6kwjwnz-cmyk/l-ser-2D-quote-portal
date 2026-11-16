@@ -233,8 +233,26 @@ def _locked_by(reqs: list[QuoteRequest]) -> list[QuoteRequest]:
 
 def _editor_contours(part: Part) -> list:
     m = part.metrics or {}
-    return [{"points": pts, "closed": bool(closed), "kind": kind}
-            for pts, closed, kind in (m.get("geometry") or m.get("preview") or [])]
+    cut = [{"points": pts, "closed": bool(closed), "kind": kind, "layer": "corte"}
+           for pts, closed, kind in (m.get("geometry") or m.get("preview") or [])]
+    mark = [{"points": pts, "closed": bool(closed), "kind": "marcado", "layer": "marcado"}
+            for pts, closed, _ in (m.get("marking") or [])]
+    return cut + mark
+
+
+def _split_layers(raw):
+    """Separa los contornos de corte de los de marcado (grabado: no se cortan ni perforan)."""
+    if not isinstance(raw, list):
+        raise editing.EditError("Formato de geometría no válido.")
+    cut = [c for c in raw if not (isinstance(c, dict) and c.get("layer") == "marcado")]
+    mark = [c for c in raw if isinstance(c, dict) and c.get("layer") == "marcado"]
+    return editing.parse_contours(cut), (editing.parse_contours(mark) if mark else [])
+
+
+def _all_contours_for_export(part: Part) -> list:
+    m = part.metrics or {}
+    return list(m.get("geometry") or m.get("preview") or []) + [
+        [pts, closed, "marcado"] for pts, closed, _ in (m.get("marking") or [])]
 
 
 async def _json_body(request: Request) -> dict:
@@ -299,7 +317,70 @@ async def analyze_geometry(part_id: str, request: Request, db: Session = Depends
         return _err(str(exc))
 
 
-def _save_geometry(part: Part, polys, user_email: str, action: str) -> None:
+@router.post("/{part_id}/geometria/operacion")
+async def geometry_operation(part_id: str, request: Request, db: Session = Depends(get_db)):
+    """Equidistancia y operaciones booleanas (las calcula Shapely en el servidor; no guarda nada)."""
+    _part_or_404(db, part_id)
+    try:
+        data = await _json_body(request)
+        polys = editing.parse_contours(data.get("contours"))
+        try:
+            distance = float(str(data.get("distance", 0)).replace(",", "."))
+        except ValueError as exc:
+            raise editing.EditError("Distancia no válida.") from exc
+        rings = editing.shape_operation(polys, str(data.get("op", "")), distance, str(data.get("join", "redondo")))
+        return JSONResponse({"contours": rings})
+    except editing.EditError as exc:
+        return _err(str(exc))
+
+
+def _download_name(part: Part, ext: str) -> str:
+    stem = re.sub(r"[^\w.\- ()]+", "_", Path(part.filename).stem)[:120] or "pieza"
+    return f"{stem}{ext}"
+
+
+@router.get("/{part_id}/plano.dxf")
+def download_dxf(part_id: str, db: Session = Depends(get_db)):
+    """DXF regenerado desde la geometría (editada o no). No es el fichero original del cliente."""
+    from fastapi.responses import Response
+    part = _part_or_404(db, part_id)
+    data = editing.to_dxf(_all_contours_for_export(part))
+    return Response(data, media_type="application/dxf", headers={
+        "Content-Disposition": f'attachment; filename="{_download_name(part, ".dxf")}"', "Cache-Control": "no-store"})
+
+
+@router.get("/{part_id}/plano.dwg")
+def download_dwg(part_id: str, db: Session = Depends(get_db)):
+    """DWG mediante LibreDWG «dxf2dwg» (junto al conversor configurado), si está instalado."""
+    from fastapi.responses import Response
+    part = _part_or_404(db, part_id)
+    conv = shutil.which(settings.dwg_converter)
+    exe = None
+    if conv:
+        p = Path(conv)
+        for name in ("dxf2dwg", "dxf2dwg.exe"):
+            if (p.parent / name).exists():
+                exe = str(p.parent / name)
+    exe = exe or shutil.which("dxf2dwg")
+    if not exe:
+        raise HTTPException(404, "No hay conversor DXF→DWG instalado (LibreDWG «dxf2dwg»). Descarga el DXF.")
+    dxf = editing.to_dxf(_all_contours_for_export(part))
+    with tempfile.TemporaryDirectory() as tmp:
+        src, dst = Path(tmp, "in.dxf"), Path(tmp, "out.dwg")
+        src.write_bytes(dxf)
+        try:
+            subprocess.run([exe, "-y", "-o", str(dst), str(src)], timeout=60,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except (subprocess.SubprocessError, OSError):
+            pass
+        if not dst.exists() or dst.stat().st_size == 0:
+            raise HTTPException(502, "El conversor no ha podido generar el DWG. Descarga el DXF.")
+        data = dst.read_bytes()
+    return Response(data, media_type="application/acad", headers={
+        "Content-Disposition": f'attachment; filename="{_download_name(part, ".dwg")}"', "Cache-Control": "no-store"})
+
+
+def _save_geometry(part: Part, polys, user_email: str, action: str, marking=None) -> None:
     old = part.metrics or {}
     metrics, svg = editing.rebuild(polys, old.get("units_source", "mm"))
     keep_original = old.get("original")
@@ -315,6 +396,10 @@ def _save_geometry(part: Part, polys, user_email: str, action: str) -> None:
     metrics["edits"] = {"count": int((old.get("edits") or {}).get("count", 0)) + 1, "last_at": now,
                         "last_by": user_email, "log": log[-EDIT_LOG_KEEP:]}
     metrics["warnings"] = metrics.get("warnings", []) + ["Geometría modificada en el editor de plano."]
+    if marking:
+        metrics["marking"] = [[[[round(x, 3), round(y, 3)] for x, y in pts], closed, "marcado"] for pts, closed in marking]
+        metrics["marking_length_mm"] = round(sum(editing._length(pts) for pts, _ in marking), 3)
+        metrics["warnings"].append(f"{len(marking)} contorno(s) en la capa de marcado: no se cuentan como corte.")
     part.metrics = metrics      # asignar un dict nuevo para que SQLAlchemy detecte el cambio
     part.svg = svg
 
@@ -329,14 +414,14 @@ async def save_geometry(part_id: str, request: Request, db: Session = Depends(ge
     part = _part_or_404(db, part_id)
     try:
         data = await _json_body(request)
-        polys = editing.parse_contours(data.get("contours"))
+        polys, marking = _split_layers(data.get("contours"))
         as_new = bool(data.get("as_new"))
         if as_new:
             base = Path(part.filename)
             new = Part(filename=f"{base.stem} (editada){base.suffix}"[:255], sha256=part.sha256,
                        size_bytes=part.size_bytes, svg=part.svg,
                        metrics={k: v for k, v in (part.metrics or {}).items() if k not in ("edits", "source_part_id")})
-            _save_geometry(new, polys, _user_email(request), "guardar como nueva pieza")
+            _save_geometry(new, polys, _user_email(request), "guardar como nueva pieza", marking)
             new.metrics = {**new.metrics, "source_part_id": part.id}
             db.add(new)
             db.commit()
@@ -346,7 +431,7 @@ async def save_geometry(part_id: str, request: Request, db: Session = Depends(ge
             nums = ", ".join(r.number or str(r.id) for r in locked)
             return _err(f"La pieza está en ofertas ya enviadas o aceptadas ({nums}). Guárdala como pieza nueva "
                         "para no alterar lo ofertado.", 409)
-        _save_geometry(part, polys, _user_email(request), "editar")
+        _save_geometry(part, polys, _user_email(request), "editar", marking)
     except editing.EditError as exc:
         return _err(str(exc))
     db.commit()
