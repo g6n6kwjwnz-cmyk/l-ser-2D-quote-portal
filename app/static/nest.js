@@ -78,7 +78,7 @@
   const say = (t) => { $("save-state").textContent = t; };
 
   // ---------------------------------------------------------------- vista: zoom, encuadre, reglas
-  function aspect() { const r = wrap.getBoundingClientRect(); return r.width > 0 ? r.height / r.width : 0.5; }
+  function aspect() { const r = wrap.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? r.height / r.width : 0.5; }
   function fitBox(x0, y0, x1, y1, pad = 0.04) {
     const w = (x1 - x0) * (1 + 2 * pad) || 100, h = (y1 - y0) * (1 + 2 * pad) || 100, a = aspect();
     const vw = Math.max(w, h / a), vh = vw * a;
@@ -93,12 +93,14 @@
   }
   function scale() { return wrap.getBoundingClientRect().width / view.w; }   // px por mm
   function applyView() {
+    if (![view.x, view.y, view.w, view.h].every(Number.isFinite) || view.w <= 0 || view.h <= 0) fitView();
     svg.setAttribute("viewBox", `${view.x} ${view.y} ${view.w} ${view.h}`);
     const sh = sheets[cur];
     if (sh) $("zoom-pct").textContent = Math.round((100 * (sh.source.w * 1.08)) / view.w) + " %";
     drawRulers(); drawGrid();
   }
   function zoomAt(k, fx = 0.5, fy = 0.5) {
+    if (![k, fx, fy, view.w, view.h].every(Number.isFinite) || view.w <= 0) return;
     const nw = Math.min(Math.max(view.w * k, 5), 200000), nh = nw * (view.h / view.w);
     view.x += (view.w - nw) * fx; view.y += (view.h - nh) * fy; view.w = nw; view.h = nh;
     applyView();
@@ -480,6 +482,7 @@
   wrap.addEventListener("wheel", (e) => {
     e.preventDefault();
     const r = svg.getBoundingClientRect();
+    if (!(r.width > 0 && r.height > 0)) return;   // SVG oculto o sin pintar: no hay punto de zoom
     const fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height;
     const k = Math.exp(Math.max(-1, Math.min(1, e.deltaY / (e.deltaMode ? 3 : 120))) * 0.18);
     zoomAt(k, fx, fy);
