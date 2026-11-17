@@ -8,18 +8,21 @@ import re
 import shutil
 import subprocess
 import tempfile
+
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..costing.engine import CostingError, QuoteInput, compute_quote
 from ..db import get_db
+from ..geometry import editing
 from ..geometry.dxf_engine import UNIT_CHOICES, UNIT_CODES, GeometryError, analyze_dxf, read_header_units, render_svg
-from ..models import CostSettings, Machine, Material, Part
+from ..models import MATERIAL_FAMILIES, REQUEST_STATUSES, CostSettings, Machine, Material, Part, QuoteRequest, RequestItem
 from ..web import templates
 
 router = APIRouter(prefix="/piezas", tags=["piezas"])
@@ -210,6 +213,250 @@ async def calculate(part_id: str, request: Request, db: Session = Depends(get_db
     return templates.TemplateResponse(request, "parts/_quote.html", {
         "q": q, "machine": machine, "material": material, "thickness": thickness, "gas": gas,
         "param": param, "s": cost_settings})
+
+
+# --------------------------------------------------------------------------- editor de plano
+
+LOCKED_STATUSES = ("enviada", "aceptada")
+MAX_EDIT_BODY = 12 * 1024 * 1024
+EDIT_LOG_KEEP = 30
+
+
+def _linked_requests(db: Session, part_id: str) -> list[QuoteRequest]:
+    return list(db.scalars(select(QuoteRequest).join(RequestItem).where(RequestItem.part_id == part_id)
+                           .distinct().order_by(QuoteRequest.created_at.desc())))
+
+
+def _locked_by(reqs: list[QuoteRequest]) -> list[QuoteRequest]:
+    return [r for r in reqs if r.status in LOCKED_STATUSES]
+
+
+def _editor_contours(part: Part) -> list:
+    m = part.metrics or {}
+    cut = [{"points": pts, "closed": bool(closed), "kind": kind, "layer": "corte"}
+           for pts, closed, kind in (m.get("geometry") or m.get("preview") or [])]
+    mark = [{"points": pts, "closed": bool(closed), "kind": "marcado", "layer": "marcado"}
+            for pts, closed, _ in (m.get("marking") or [])]
+    return cut + mark
+
+
+def _split_layers(raw):
+    """Separa los contornos de corte de los de marcado (grabado: no se cortan ni perforan)."""
+    if not isinstance(raw, list):
+        raise editing.EditError("Formato de geometría no válido.")
+    cut = [c for c in raw if not (isinstance(c, dict) and c.get("layer") == "marcado")]
+    mark = [c for c in raw if isinstance(c, dict) and c.get("layer") == "marcado"]
+    return editing.parse_contours(cut), (editing.parse_contours(mark) if mark else [])
+
+
+def _all_contours_for_export(part: Part) -> list:
+    m = part.metrics or {}
+    return list(m.get("geometry") or m.get("preview") or []) + [
+        [pts, closed, "marcado"] for pts, closed, _ in (m.get("marking") or [])]
+
+
+async def _json_body(request: Request) -> dict:
+    """Solo JSON (un formulario de otra web no puede enviarlo sin CORS) y con tamaño limitado."""
+    if not (request.headers.get("content-type") or "").startswith("application/json"):
+        raise editing.EditError("Tipo de contenido no admitido.")
+    length = request.headers.get("content-length")
+    if length and length.isdigit() and int(length) > MAX_EDIT_BODY:
+        raise editing.EditError("La geometría enviada es demasiado grande; simplifícala.")
+    body = await request.body()
+    if len(body) > MAX_EDIT_BODY:
+        raise editing.EditError("La geometría enviada es demasiado grande; simplifícala.")
+    try:
+        data = json.loads(body)
+    except ValueError as exc:
+        raise editing.EditError("Datos no válidos.") from exc
+    if not isinstance(data, dict):
+        raise editing.EditError("Datos no válidos.")
+    return data
+
+
+def _rules(data: dict) -> editing.Rules | None:
+    try:
+        t = float(data.get("thickness_mm") or 0)
+    except (TypeError, ValueError):
+        return None
+    if not (settings.min_thickness_mm <= t <= settings.max_thickness_mm):
+        return None
+    fam = data.get("family") if data.get("family") in MATERIAL_FAMILIES else "acero"
+    return editing.Rules(thickness=t, family=fam)
+
+
+def _err(msg: str, status: int = 422) -> JSONResponse:
+    return JSONResponse({"error": msg}, status_code=status)
+
+
+@router.get("/{part_id}/editor")
+def part_editor(part_id: str, request: Request, db: Session = Depends(get_db)):
+    part = _part_or_404(db, part_id)
+    reqs = _linked_requests(db, part.id)
+    return templates.TemplateResponse(request, "parts/editor.html", {
+        "part": part, "g": part.metrics, "reqs": reqs, "locked": _locked_by(reqs), "statuses": REQUEST_STATUSES,
+        "families": MATERIAL_FAMILIES, "edits": (part.metrics or {}).get("edits") or {},
+        "has_original": bool((part.metrics or {}).get("original")),
+        "min_t": settings.min_thickness_mm, "max_t": settings.max_thickness_mm})
+
+
+@router.get("/{part_id}/geometria.json")
+def part_geometry(part_id: str, db: Session = Depends(get_db)):
+    part = _part_or_404(db, part_id)
+    return JSONResponse({"contours": _editor_contours(part)}, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/{part_id}/geometria/analizar")
+async def analyze_geometry(part_id: str, request: Request, db: Session = Depends(get_db)):
+    _part_or_404(db, part_id)
+    try:
+        data = await _json_body(request)
+        polys = editing.parse_contours(data.get("contours"))
+        return JSONResponse(editing.analyze(polys, _rules(data)))
+    except editing.EditError as exc:
+        return _err(str(exc))
+
+
+@router.post("/{part_id}/geometria/operacion")
+async def geometry_operation(part_id: str, request: Request, db: Session = Depends(get_db)):
+    """Equidistancia y operaciones booleanas (las calcula Shapely en el servidor; no guarda nada)."""
+    _part_or_404(db, part_id)
+    try:
+        data = await _json_body(request)
+        polys = editing.parse_contours(data.get("contours"))
+        try:
+            distance = float(str(data.get("distance", 0)).replace(",", "."))
+        except ValueError as exc:
+            raise editing.EditError("Distancia no válida.") from exc
+        rings = editing.shape_operation(polys, str(data.get("op", "")), distance, str(data.get("join", "redondo")))
+        return JSONResponse({"contours": rings})
+    except editing.EditError as exc:
+        return _err(str(exc))
+
+
+def _download_name(part: Part, ext: str) -> str:
+    stem = re.sub(r"[^\w.\- ()]+", "_", Path(part.filename).stem)[:120] or "pieza"
+    return f"{stem}{ext}"
+
+
+@router.get("/{part_id}/plano.dxf")
+def download_dxf(part_id: str, db: Session = Depends(get_db)):
+    """DXF regenerado desde la geometría (editada o no). No es el fichero original del cliente."""
+    from fastapi.responses import Response
+    part = _part_or_404(db, part_id)
+    data = editing.to_dxf(_all_contours_for_export(part))
+    return Response(data, media_type="application/dxf", headers={
+        "Content-Disposition": f'attachment; filename="{_download_name(part, ".dxf")}"', "Cache-Control": "no-store"})
+
+
+@router.get("/{part_id}/plano.dwg")
+def download_dwg(part_id: str, db: Session = Depends(get_db)):
+    """DWG mediante LibreDWG «dxf2dwg» (junto al conversor configurado), si está instalado."""
+    from fastapi.responses import Response
+    part = _part_or_404(db, part_id)
+    conv = shutil.which(settings.dwg_converter)
+    exe = None
+    if conv:
+        p = Path(conv)
+        for name in ("dxf2dwg", "dxf2dwg.exe"):
+            if (p.parent / name).exists():
+                exe = str(p.parent / name)
+    exe = exe or shutil.which("dxf2dwg")
+    if not exe:
+        raise HTTPException(404, "No hay conversor DXF→DWG instalado (LibreDWG «dxf2dwg»). Descarga el DXF.")
+    dxf = editing.to_dxf(_all_contours_for_export(part))
+    with tempfile.TemporaryDirectory() as tmp:
+        src, dst = Path(tmp, "in.dxf"), Path(tmp, "out.dwg")
+        src.write_bytes(dxf)
+        try:
+            subprocess.run([exe, "-y", "-o", str(dst), str(src)], timeout=60,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except (subprocess.SubprocessError, OSError):
+            pass
+        if not dst.exists() or dst.stat().st_size == 0:
+            raise HTTPException(502, "El conversor no ha podido generar el DWG. Descarga el DXF.")
+        data = dst.read_bytes()
+    return Response(data, media_type="application/acad", headers={
+        "Content-Disposition": f'attachment; filename="{_download_name(part, ".dwg")}"', "Cache-Control": "no-store"})
+
+
+def _save_geometry(part: Part, polys, user_email: str, action: str, marking=None) -> None:
+    old = part.metrics or {}
+    metrics, svg = editing.rebuild(polys, old.get("units_source", "mm"))
+    keep_original = old.get("original")
+    if not keep_original:
+        # copia de la geometría tal como se analizó al subir el plano, para poder restaurarla
+        keep_original = {k: v for k, v in old.items() if k not in ("edits", "original")}
+        keep_original["svg"] = part.svg
+    metrics["units_source"] = old.get("units_source", metrics["units_source"])
+    metrics["original"] = keep_original
+    log = list((old.get("edits") or {}).get("log") or [])
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    log.append({"at": now, "by": user_email, "action": action})
+    metrics["edits"] = {"count": int((old.get("edits") or {}).get("count", 0)) + 1, "last_at": now,
+                        "last_by": user_email, "log": log[-EDIT_LOG_KEEP:]}
+    metrics["warnings"] = metrics.get("warnings", []) + ["Geometría modificada en el editor de plano."]
+    if marking:
+        metrics["marking"] = [[[[round(x, 3), round(y, 3)] for x, y in pts], closed, "marcado"] for pts, closed in marking]
+        metrics["marking_length_mm"] = round(sum(editing._length(pts) for pts, _ in marking), 3)
+        metrics["warnings"].append(f"{len(marking)} contorno(s) en la capa de marcado: no se cuentan como corte.")
+    part.metrics = metrics      # asignar un dict nuevo para que SQLAlchemy detecte el cambio
+    part.svg = svg
+
+
+def _user_email(request: Request) -> str:
+    user = getattr(request.state, "user", None)
+    return getattr(user, "email", "") or "desconocido"
+
+
+@router.post("/{part_id}/geometria")
+async def save_geometry(part_id: str, request: Request, db: Session = Depends(get_db)):
+    part = _part_or_404(db, part_id)
+    try:
+        data = await _json_body(request)
+        polys, marking = _split_layers(data.get("contours"))
+        as_new = bool(data.get("as_new"))
+        if as_new:
+            base = Path(part.filename)
+            new = Part(filename=f"{base.stem} (editada){base.suffix}"[:255], sha256=part.sha256,
+                       size_bytes=part.size_bytes, svg=part.svg,
+                       metrics={k: v for k, v in (part.metrics or {}).items() if k not in ("edits", "source_part_id")})
+            _save_geometry(new, polys, _user_email(request), "guardar como nueva pieza", marking)
+            new.metrics = {**new.metrics, "source_part_id": part.id}
+            db.add(new)
+            db.commit()
+            return JSONResponse({"ok": True, "redirect": f"/piezas/{new.id}/editor"})
+        locked = _locked_by(_linked_requests(db, part.id))
+        if locked:
+            nums = ", ".join(r.number or str(r.id) for r in locked)
+            return _err(f"La pieza está en ofertas ya enviadas o aceptadas ({nums}). Guárdala como pieza nueva "
+                        "para no alterar lo ofertado.", 409)
+        _save_geometry(part, polys, _user_email(request), "editar", marking)
+    except editing.EditError as exc:
+        return _err(str(exc))
+    db.commit()
+    return JSONResponse({"ok": True, "contours": _editor_contours(part)})
+
+
+@router.post("/{part_id}/geometria/restaurar")
+def restore_geometry(part_id: str, request: Request, db: Session = Depends(get_db)):
+    part = _part_or_404(db, part_id)
+    original = (part.metrics or {}).get("original")
+    if not original:
+        return RedirectResponse(f"/piezas/{part.id}/editor", status_code=303)
+    if _locked_by(_linked_requests(db, part.id)):
+        raise HTTPException(409, "La pieza está en ofertas ya enviadas o aceptadas; no se puede restaurar.")
+    restored = {k: v for k, v in original.items() if k != "svg"}
+    edits = dict((part.metrics or {}).get("edits") or {})
+    log = list(edits.get("log") or [])
+    log.append({"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "by": _user_email(request),
+                "action": "restaurar original"})
+    edits["log"] = log[-EDIT_LOG_KEEP:]
+    restored["edits"] = edits
+    part.metrics = restored
+    part.svg = original.get("svg") or part.svg
+    db.commit()
+    return RedirectResponse(f"/piezas/{part.id}/editor", status_code=303)
 
 
 @router.post("/{part_id}/eliminar")

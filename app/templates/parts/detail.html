@@ -3,8 +3,11 @@
 {% block content %}
 <p class="crumbs"><a href="/piezas">Piezas</a> /</p>
 <div class="page-head">
-  <div><h1>{{ part.filename }}</h1><p class="muted small">SHA-256 {{ part.sha256[:16] }}… · {{ (part.size_bytes/1024)|num(1) }} KB · unidades: {{ g.units_source }}</p></div>
-  <form method="post" action="/piezas/{{ part.id }}/eliminar"><button class="btn ghost">Eliminar pieza</button></form>
+  <div><h1>{{ part.filename }}{% if g.edits and g.edits.count %} <span class="badge warn">Plano editado</span>{% endif %}</h1><p class="muted small">SHA-256 {{ part.sha256[:16] }}… · {{ (part.size_bytes/1024)|num(1) }} KB · unidades: {{ g.units_source }}</p></div>
+  <div class="actions">
+    <a class="btn primary" href="/piezas/{{ part.id }}/editor">Editar plano</a>
+    <form method="post" action="/piezas/{{ part.id }}/eliminar"><button class="btn ghost">Eliminar pieza</button></form>
+  </div>
 </div>
 
 {% for w in g.warnings %}<div class="alert warn">{{ w }}</div>{% endfor %}
